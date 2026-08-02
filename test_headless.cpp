@@ -9,6 +9,12 @@
 namespace
 {
 constexpr double kPi = 3.14159265358979323846;
+constexpr double kTargetX = 3.0;
+constexpr double kTargetZ = 0.43;
+constexpr double kTargetLateralAmplitudeY = 0.85;
+constexpr double kTargetLateralPeriodS = 5.0;
+constexpr double kTargetOrbitRadius = 0.04;
+constexpr double kTargetOrbitPeriodS = 1.2;
 constexpr double kManualYawRate = 3.2;
 constexpr double kManualPitchRate = 2.4;
 constexpr double kPitchMin = -0.8;
@@ -19,6 +25,28 @@ double wrap_pi(double x)
     while (x > kPi) x -= 2.0 * kPi;
     while (x < -kPi) x += 2.0 * kPi;
     return x;
+}
+
+void set_orbiting_target_pose(mjData* d, int target_mocap)
+{
+    const double lateral_phase = 2.0 * kPi * d->time / kTargetLateralPeriodS;
+    const double orbit_phase = 2.0 * kPi * d->time / kTargetOrbitPeriodS;
+    const double center_y = kTargetLateralAmplitudeY * std::sin(lateral_phase);
+    const double orbit_y = kTargetOrbitRadius * std::cos(orbit_phase);
+    const double orbit_z = kTargetOrbitRadius * std::sin(orbit_phase);
+
+    d->mocap_pos[3 * target_mocap + 0] = kTargetX;
+    d->mocap_pos[3 * target_mocap + 1] = center_y + orbit_y;
+    d->mocap_pos[3 * target_mocap + 2] = kTargetZ + orbit_z;
+
+    const mjtNum outward_y = std::cos(orbit_phase);
+    const mjtNum outward_z = std::sin(orbit_phase);
+    const mjtNum rot[9] = {
+      0.0, 1.0, 0.0,
+      outward_y, 0.0, outward_z,
+      outward_z, 0.0, -outward_y,
+    };
+    mju_mat2Quat(d->mocap_quat + 4 * target_mocap, rot);
 }
 }  // namespace
 
@@ -36,14 +64,17 @@ int main()
     const int pitch_joint = mj_name2id(m, mjOBJ_JOINT, "pitch");
     const int yaw_motor = mj_name2id(m, mjOBJ_ACTUATOR, "yaw_motor");
     const int pitch_motor = mj_name2id(m, mjOBJ_ACTUATOR, "pitch_motor");
+    const int gimbal_base_body = mj_name2id(m, mjOBJ_BODY, "gimbal_base");
     const int target_body = mj_name2id(m, mjOBJ_BODY, "target");
+    const int target_geom = mj_name2id(m, mjOBJ_GEOM, "target_square");
     const int target_site = mj_name2id(m, mjOBJ_SITE, "target_site");
     const int muzzle_site = mj_name2id(m, mjOBJ_SITE, "muzzle_site");
     const int aim_ray_site = mj_name2id(m, mjOBJ_SITE, "aim_ray");
     const int gimbal_camera = mj_name2id(m, mjOBJ_CAMERA, "gimbal_pov");
 
     if (yaw_joint < 0 || pitch_joint < 0 || yaw_motor < 0 || pitch_motor < 0 ||
-        target_body < 0 || target_site < 0 || muzzle_site < 0 || aim_ray_site < 0 ||
+        gimbal_base_body < 0 || target_body < 0 || target_geom < 0 || target_site < 0 ||
+        muzzle_site < 0 || aim_ray_site < 0 ||
         gimbal_camera < 0) {
         std::printf("FAIL required MJCF name missing\n");
         return 1;
@@ -63,11 +94,19 @@ int main()
     cmd.control = true;
     cmd.found = true;
 
-    d->mocap_pos[3 * target_mocap + 0] = 3.0;
-    d->mocap_pos[3 * target_mocap + 1] = 0.0;
-    d->mocap_pos[3 * target_mocap + 2] = 0.43;
-    d->mocap_quat[4 * target_mocap + 0] = 1.0;
+    set_orbiting_target_pose(d, target_mocap);
     mj_forward(m, d);
+
+    const double gimbal_bottom_z = d->xpos[3 * gimbal_base_body + 2] - 0.13;
+    const double target_top_z = d->xpos[3 * target_body + 2] + m->geom_size[3 * target_geom + 2];
+    const bool target_is_four_times_smaller =
+      std::abs(m->geom_size[3 * target_geom + 1] - 0.055) < 1e-9 &&
+      std::abs(m->geom_size[3 * target_geom + 2] - 0.055) < 1e-9;
+    const bool gimbal_bottom_just_above_target =
+      gimbal_bottom_z > target_top_z && (gimbal_bottom_z - target_top_z) < 0.08;
+    const double initial_target_y = d->xpos[3 * target_body + 1];
+    const double initial_target_z = d->xpos[3 * target_body + 2];
+    const double initial_target_xaxis_dot_outward = d->xmat[9 * target_body + 1];
 
     const mjtNum* initial_camera = d->cam_xpos + 3 * gimbal_camera;
     const mjtNum* initial_target = d->site_xpos + 3 * target_site;
@@ -94,10 +133,7 @@ int main()
     const bool camera_angled_down = view_dir[2] < -0.10;
 
     for (int i = 0; i < 150; ++i) {
-        d->mocap_pos[3 * target_mocap + 0] = 3.0;
-        d->mocap_pos[3 * target_mocap + 1] = std::sin(d->time);
-        d->mocap_pos[3 * target_mocap + 2] = 0.43;
-        d->mocap_quat[4 * target_mocap + 0] = 1.0;
+        set_orbiting_target_pose(d, target_mocap);
 
         cmd.yaw_vel = kManualYawRate;
         cmd.pitch_vel = kManualPitchRate;
@@ -120,6 +156,9 @@ int main()
     const double pitch_after_press = d->qpos[pitch_qpos];
     const double yaw_vel_after_press = d->qvel[yaw_qvel];
     const double pitch_vel_after_press = d->qvel[pitch_qvel];
+    const double target_travel_yz = std::hypot(
+      d->xpos[3 * target_body + 1] - initial_target_y,
+      d->xpos[3 * target_body + 2] - initial_target_z);
 
     for (int i = 0; i < 150; ++i) {
         cmd.yaw_vel = 0.0;
@@ -154,10 +193,11 @@ int main()
     std::printf(
       "yaw=%.3f yaw_vel=%.3f pitch=%.3f pitch_vel=%.3f yaw_coast=%.3f pitch_coast=%.3f "
       "target_yaw=%.3f target_pitch=%.3f yaw_error=%.3f pitch_error=%.3f camera_alignment=%.3f "
-      "camera_z=%.3f aim_z=%.3f view_z=%.3f\n",
+      "camera_z=%.3f aim_z=%.3f view_z=%.3f target_travel=%.3f target_xdot=%.3f\n",
       yaw_after_press, yaw_vel_after_press, pitch_after_press, pitch_vel_after_press, yaw_coast,
       pitch_coast, target_yaw, target_pitch, yaw_error, pitch_error, camera_alignment,
-      initial_camera_z, initial_aim_ray_z, initial_view_z);
+      initial_camera_z, initial_aim_ray_z, initial_view_z, target_travel_yz,
+      initial_target_xaxis_dot_outward);
 
     mj_deleteData(d);
     mj_deleteModel(m);
@@ -188,6 +228,18 @@ int main()
     }
     if (!camera_above_aim_ray || !camera_angled_down) {
         std::printf("FAIL gimbal POV camera is not mounted higher and angled down\n");
+        return 1;
+    }
+    if (!target_is_four_times_smaller) {
+        std::printf("FAIL target square is not four times smaller\n");
+        return 1;
+    }
+    if (!gimbal_bottom_just_above_target) {
+        std::printf("FAIL gimbal bottom is not just above target top\n");
+        return 1;
+    }
+    if (target_travel_yz < 0.05 || initial_target_xaxis_dot_outward < 0.99) {
+        std::printf("FAIL target does not orbit/faces the wrong way\n");
         return 1;
     }
 

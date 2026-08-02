@@ -14,8 +14,10 @@ constexpr double kPi = 3.14159265358979323846;
 constexpr double kRenderDt = 1.0 / 60.0;
 constexpr double kTargetX = 3.0;
 constexpr double kTargetZ = 0.43;
-constexpr double kTargetAmplitudeY = 1.0;
-constexpr double kTargetPeriodS = 4.0;
+constexpr double kTargetLateralAmplitudeY = 0.85;
+constexpr double kTargetLateralPeriodS = 5.0;
+constexpr double kTargetOrbitRadius = 0.04;
+constexpr double kTargetOrbitPeriodS = 1.2;
 constexpr double kMouseYawSensitivity = 0.0025;    // rad/pixel
 constexpr double kMousePitchSensitivity = 0.0020;  // rad/pixel
 constexpr double kMaxYawVel = 4.0;        // matches yaw_motor ctrlrange
@@ -56,6 +58,29 @@ bool file_exists(const char* path)
         return true;
     }
     return false;
+}
+
+void set_orbiting_target_pose(mjData* d, int target_mocap)
+{
+    const double lateral_phase = 2.0 * kPi * d->time / kTargetLateralPeriodS;
+    const double orbit_phase = 2.0 * kPi * d->time / kTargetOrbitPeriodS;
+    const double center_y = kTargetLateralAmplitudeY * std::sin(lateral_phase);
+    const double orbit_y = kTargetOrbitRadius * std::cos(orbit_phase);
+    const double orbit_z = kTargetOrbitRadius * std::sin(orbit_phase);
+
+    d->mocap_pos[3 * target_mocap + 0] = kTargetX;
+    d->mocap_pos[3 * target_mocap + 1] = center_y + orbit_y;
+    d->mocap_pos[3 * target_mocap + 2] = kTargetZ + orbit_z;
+
+    // Local +X is the outward face normal. Local -X faces the orbit center.
+    const mjtNum outward_y = std::cos(orbit_phase);
+    const mjtNum outward_z = std::sin(orbit_phase);
+    const mjtNum rot[9] = {
+      0.0, 1.0, 0.0,
+      outward_y, 0.0, outward_z,
+      outward_z, 0.0, -outward_y,
+    };
+    mju_mat2Quat(d->mocap_quat + 4 * target_mocap, rot);
 }
 
 std::string xml_path_from_args(int argc, char** argv)
@@ -194,15 +219,8 @@ int main(int argc, char** argv)
             glfwSetWindowShouldClose(w, GLFW_TRUE);
         }
 
-        // Move square target left/right in front of the gimbal.
-        const double target_y = kTargetAmplitudeY * std::sin(2.0 * kPi * d->time / kTargetPeriodS);
-        d->mocap_pos[3 * target_mocap + 0] = kTargetX;
-        d->mocap_pos[3 * target_mocap + 1] = target_y;
-        d->mocap_pos[3 * target_mocap + 2] = kTargetZ;
-        d->mocap_quat[4 * target_mocap + 0] = 1.0;
-        d->mocap_quat[4 * target_mocap + 1] = 0.0;
-        d->mocap_quat[4 * target_mocap + 2] = 0.0;
-        d->mocap_quat[4 * target_mocap + 3] = 0.0;
+        // Target orbits a laterally moving point. Its local -X face always looks inward.
+        set_orbiting_target_pose(d, target_mocap);
 
         double nx, ny;
         glfwGetCursorPos(w, &nx, &ny);

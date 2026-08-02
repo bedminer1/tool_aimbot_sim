@@ -5,7 +5,9 @@ MuJoCo prototype for a RoboMaster-style yaw/pitch gimbal and moving target.
 Current scope is intentionally small:
 
 - yaw/pitch gimbal
-- red square target moving left/right in front of the gimbal
+- small red square target orbiting a point that moves left/right
+- target orientation follows the orbit so one face points inward and the other outward
+- gimbal base is raised so its bottom sits just above the top of the target
 - mouse-controlled yaw/pitch aiming from the gimbal POV
 - starts in a fixed gimbal POV camera mounted slightly above the barrel and angled down so the sight dot is visible
 - aimbot-style `hw::Command` output fields for bridging to `27_aimbot_software`
