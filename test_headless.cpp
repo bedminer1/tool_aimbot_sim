@@ -32,19 +32,21 @@ void set_orbiting_target_pose(mjData* d, int target_mocap)
     const double lateral_phase = 2.0 * kPi * d->time / kTargetLateralPeriodS;
     const double orbit_phase = 2.0 * kPi * d->time / kTargetOrbitPeriodS;
     const double center_y = kTargetLateralAmplitudeY * std::sin(lateral_phase);
+
+    // Clockwise when viewed from top-down (+Z looking down): start at +Y and move toward +X.
+    const double orbit_x = kTargetOrbitRadius * std::sin(orbit_phase);
     const double orbit_y = kTargetOrbitRadius * std::cos(orbit_phase);
-    const double orbit_z = kTargetOrbitRadius * std::sin(orbit_phase);
 
-    d->mocap_pos[3 * target_mocap + 0] = kTargetX;
+    d->mocap_pos[3 * target_mocap + 0] = kTargetX + orbit_x;
     d->mocap_pos[3 * target_mocap + 1] = center_y + orbit_y;
-    d->mocap_pos[3 * target_mocap + 2] = kTargetZ + orbit_z;
+    d->mocap_pos[3 * target_mocap + 2] = kTargetZ;
 
-    const mjtNum outward_y = std::cos(orbit_phase);
-    const mjtNum outward_z = std::sin(orbit_phase);
+    const mjtNum outward_x = orbit_x / kTargetOrbitRadius;
+    const mjtNum outward_y = orbit_y / kTargetOrbitRadius;
     const mjtNum rot[9] = {
-      0.0, 1.0, 0.0,
-      outward_y, 0.0, outward_z,
-      outward_z, 0.0, -outward_y,
+      outward_x, outward_y, 0.0,
+      -outward_y, outward_x, 0.0,
+      0.0, 0.0, 1.0,
     };
     mju_mat2Quat(d->mocap_quat + 4 * target_mocap, rot);
 }
@@ -106,6 +108,7 @@ int main()
       gimbal_bottom_z > target_top_z && (gimbal_bottom_z - target_top_z) < 0.08;
     const double initial_target_y = d->xpos[3 * target_body + 1];
     const double initial_target_z = d->xpos[3 * target_body + 2];
+    const double initial_target_x = d->xpos[3 * target_body + 0];
     const double initial_target_xaxis_dot_outward = d->xmat[9 * target_body + 1];
 
     const mjtNum* initial_camera = d->cam_xpos + 3 * gimbal_camera;
@@ -159,6 +162,7 @@ int main()
     const double target_travel_yz = std::hypot(
       d->xpos[3 * target_body + 1] - initial_target_y,
       d->xpos[3 * target_body + 2] - initial_target_z);
+    const double target_topdown_x_delta = d->xpos[3 * target_body + 0] - initial_target_x;
 
     for (int i = 0; i < 150; ++i) {
         cmd.yaw_vel = 0.0;
@@ -193,10 +197,10 @@ int main()
     std::printf(
       "yaw=%.3f yaw_vel=%.3f pitch=%.3f pitch_vel=%.3f yaw_coast=%.3f pitch_coast=%.3f "
       "target_yaw=%.3f target_pitch=%.3f yaw_error=%.3f pitch_error=%.3f camera_alignment=%.3f "
-      "camera_z=%.3f aim_z=%.3f view_z=%.3f target_travel=%.3f target_xdot=%.3f\n",
+      "camera_z=%.3f aim_z=%.3f view_z=%.3f target_travel=%.3f target_xdelta=%.3f target_xdot=%.3f\n",
       yaw_after_press, yaw_vel_after_press, pitch_after_press, pitch_vel_after_press, yaw_coast,
       pitch_coast, target_yaw, target_pitch, yaw_error, pitch_error, camera_alignment,
-      initial_camera_z, initial_aim_ray_z, initial_view_z, target_travel_yz,
+      initial_camera_z, initial_aim_ray_z, initial_view_z, target_travel_yz, target_topdown_x_delta,
       initial_target_xaxis_dot_outward);
 
     mj_deleteData(d);
@@ -238,7 +242,8 @@ int main()
         std::printf("FAIL gimbal bottom is not just above target top\n");
         return 1;
     }
-    if (target_travel_yz < 0.05 || initial_target_xaxis_dot_outward < 0.99) {
+    if (target_travel_yz < 0.05 || target_topdown_x_delta < 0.02 ||
+        initial_target_xaxis_dot_outward < 0.99) {
         std::printf("FAIL target does not orbit/faces the wrong way\n");
         return 1;
     }

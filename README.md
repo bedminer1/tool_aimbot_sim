@@ -6,7 +6,7 @@ Current scope is intentionally small:
 
 - yaw/pitch gimbal
 - small red square target orbiting a point that moves left/right
-- target orientation follows the orbit so one face points inward and the other outward
+- target orientation follows the top-down clockwise orbit so one face points inward and the other outward
 - gimbal base is raised so its bottom sits just above the top of the target
 - mouse-controlled yaw/pitch aiming from the gimbal POV
 - starts in a fixed gimbal POV camera mounted slightly above the barrel and angled down so the sight dot is visible

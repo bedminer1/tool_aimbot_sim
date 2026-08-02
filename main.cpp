@@ -65,20 +65,22 @@ void set_orbiting_target_pose(mjData* d, int target_mocap)
     const double lateral_phase = 2.0 * kPi * d->time / kTargetLateralPeriodS;
     const double orbit_phase = 2.0 * kPi * d->time / kTargetOrbitPeriodS;
     const double center_y = kTargetLateralAmplitudeY * std::sin(lateral_phase);
-    const double orbit_y = kTargetOrbitRadius * std::cos(orbit_phase);
-    const double orbit_z = kTargetOrbitRadius * std::sin(orbit_phase);
 
-    d->mocap_pos[3 * target_mocap + 0] = kTargetX;
+    // Clockwise when viewed from top-down (+Z looking down): start at +Y and move toward +X.
+    const double orbit_x = kTargetOrbitRadius * std::sin(orbit_phase);
+    const double orbit_y = kTargetOrbitRadius * std::cos(orbit_phase);
+
+    d->mocap_pos[3 * target_mocap + 0] = kTargetX + orbit_x;
     d->mocap_pos[3 * target_mocap + 1] = center_y + orbit_y;
-    d->mocap_pos[3 * target_mocap + 2] = kTargetZ + orbit_z;
+    d->mocap_pos[3 * target_mocap + 2] = kTargetZ;
 
     // Local +X is the outward face normal. Local -X faces the orbit center.
-    const mjtNum outward_y = std::cos(orbit_phase);
-    const mjtNum outward_z = std::sin(orbit_phase);
+    const mjtNum outward_x = orbit_x / kTargetOrbitRadius;
+    const mjtNum outward_y = orbit_y / kTargetOrbitRadius;
     const mjtNum rot[9] = {
-      0.0, 1.0, 0.0,
-      outward_y, 0.0, outward_z,
-      outward_z, 0.0, -outward_y,
+      outward_x, outward_y, 0.0,
+      -outward_y, outward_x, 0.0,
+      0.0, 0.0, 1.0,
     };
     mju_mat2Quat(d->mocap_quat + 4 * target_mocap, rot);
 }
