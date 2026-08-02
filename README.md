@@ -5,11 +5,11 @@ MuJoCo prototype for a RoboMaster-style yaw/pitch gimbal and moving target.
 Current scope is intentionally small:
 
 - yaw/pitch gimbal
-- medium red square target orbiting a point that moves left/right
+- 140 x 125 mm red target plate, 5 m away when straight on
 - target orientation follows the top-down clockwise orbit so one face points inward and the other outward
 - gimbal base is raised so its bottom sits just above the top of the target
 - mouse-controlled yaw/pitch aiming from the gimbal POV
-- left-click shooting with 10 scored shots per run
+- left-click shooting with 10 scored 17 mm bullets per run
 - `T` toggles a simple aimbot that emits the same `hw::Command` fields and fires automatically
 - starts in a fixed gimbal POV camera mounted slightly above the barrel and angled down so the sight dot is visible
 - aimbot-style `hw::Command` output fields for bridging to `27_aimbot_software`
@@ -62,7 +62,8 @@ Scoring:
 
 - each run has 10 shots
 - left-click fires one shot from the green laser ray
-- score increments if the ray intersects the target at click time
+- bullets travel at 24 km/h on a ballistic trajectory
+- score increments when the bullet intersects the moving target plate
 - timer starts on the first shot and stops on the tenth shot
 - `R` resets the counter and score
 
@@ -70,7 +71,7 @@ Aimbot mode:
 
 - uses the same simulated inputs as the real pipeline: target yaw/pitch error plus gimbal yaw/pitch status
 - outputs `hw::Command{control, found, shoot, yaw, pitch, yaw_vel, pitch_vel, yaw_accel, pitch_accel}`
-- fires automatically when the green laser intersects the target, with a short shot cooldown
+- aims with a low-arc ballistic solution and fires automatically with a short shot cooldown
 
 ## Aimbot I/O bridge
 
@@ -105,7 +106,6 @@ The fallback is a minimal mirror of the command struct so this repo still builds
 
 ## Current limitations
 
-- no projectile model
 - no vision detector or tracker loop yet
 - manual control uses kinematic velocity, not realistic torque dynamics
 - no RL environment API yet

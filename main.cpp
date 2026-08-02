@@ -2,6 +2,7 @@
 #include <GLFW/glfw3.h>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdio>
 #include <string>
@@ -12,12 +13,12 @@ namespace
 {
 constexpr double kPi = 3.14159265358979323846;
 constexpr double kRenderDt = 1.0 / 60.0;
-constexpr double kTargetX = 3.0;
+constexpr double kTargetX = 5.0;
 constexpr double kTargetZ = 0.43;
 constexpr double kTargetLateralAmplitudeY = 0.85;
 constexpr double kTargetLateralPeriodS = 5.0;
 constexpr double kTargetOrbitRadius = 0.04;
-constexpr double kTargetOrbitPeriodS = 1.2;
+constexpr double kTargetOrbitPeriodS = 0.6;
 constexpr double kMouseYawSensitivity = 0.0025;    // rad/pixel
 constexpr double kMousePitchSensitivity = 0.0020;  // rad/pixel
 constexpr double kMaxYawVel = 4.0;        // matches yaw_motor ctrlrange
@@ -25,6 +26,10 @@ constexpr double kMaxPitchVel = 4.0;      // matches pitch_motor ctrlrange
 constexpr double kAutoYawKp = 9.0;
 constexpr double kAutoPitchKp = 9.0;
 constexpr double kAutoShotCooldownS = 0.12;
+constexpr double kBulletSpeed = 24.0 / 3.6;  // 24 km/h -> m/s
+constexpr double kBulletRadius = 0.017 / 2.0;
+constexpr double kGravity = 9.81;
+constexpr int kMaxBullets = 10;
 constexpr double kPitchMin = -0.8;
 constexpr double kPitchMax = 0.8;
 
@@ -53,6 +58,42 @@ struct Vec3
     double y = 0.0;
     double z = 0.0;
 };
+
+struct Bullet
+{
+    bool active = false;
+    bool scored = false;
+    double spawn_time = 0.0;
+    int mocap_id = -1;
+    Vec3 prev_pos{};
+    Vec3 pos{};
+    Vec3 vel{};
+};
+
+Vec3 operator+(const Vec3& a, const Vec3& b)
+{
+    return {a.x + b.x, a.y + b.y, a.z + b.z};
+}
+
+Vec3 operator-(const Vec3& a, const Vec3& b)
+{
+    return {a.x - b.x, a.y - b.y, a.z - b.z};
+}
+
+Vec3 operator*(const Vec3& v, double s)
+{
+    return {v.x * s, v.y * s, v.z * s};
+}
+
+double norm_xy(const Vec3& v)
+{
+    return std::hypot(v.x, v.y);
+}
+
+double norm(const Vec3& v)
+{
+    return std::sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
+}
 
 double wrap_pi(double x)
 {
@@ -139,6 +180,172 @@ bool ray_hits_target_box(const mjModel* m, const mjData* d, int muzzle_site, int
     return t_max >= 0.0;
 }
 
+bool segment_hits_expanded_target_box(
+  const mjModel* m, const mjData* d, const Vec3& a, const Vec3& b, int target_body, int target_geom)
+{
+    const mjtNum* body_pos = d->xpos + 3 * target_body;
+    const mjtNum* body_xmat = d->xmat + 9 * target_body;
+    const mjtNum* half = m->geom_size + 3 * target_geom;
+    const Vec3 da{a.x - body_pos[0], a.y - body_pos[1], a.z - body_pos[2]};
+    const Vec3 db{b.x - body_pos[0], b.y - body_pos[1], b.z - body_pos[2]};
+    const double a_vals[3] = {dot(body_xmat + 0, da), dot(body_xmat + 3, da), dot(body_xmat + 6, da)};
+    const double b_vals[3] = {dot(body_xmat + 0, db), dot(body_xmat + 3, db), dot(body_xmat + 6, db)};
+    const double half_vals[3] = {
+      half[0] + kBulletRadius,
+      half[1] + kBulletRadius,
+      half[2] + kBulletRadius,
+    };
+
+    double t_min = 0.0;
+    double t_max = 1.0;
+    for (int i = 0; i < 3; ++i) {
+        const double dir = b_vals[i] - a_vals[i];
+        if (std::abs(dir) < 1e-9) {
+            if (a_vals[i] < -half_vals[i] || a_vals[i] > half_vals[i]) return false;
+            continue;
+        }
+        double t1 = (-half_vals[i] - a_vals[i]) / dir;
+        double t2 = (half_vals[i] - a_vals[i]) / dir;
+        if (t1 > t2) std::swap(t1, t2);
+        t_min = std::max(t_min, t1);
+        t_max = std::min(t_max, t2);
+        if (t_min > t_max) return false;
+    }
+    return true;
+}
+
+bool ballistic_pitch(double horizontal_distance, double dz, double& pitch)
+{
+    const double v2 = kBulletSpeed * kBulletSpeed;
+    const double discriminant = v2 * v2 - kGravity * (kGravity * horizontal_distance * horizontal_distance + 2.0 * dz * v2);
+    if (discriminant < 0.0 || horizontal_distance < 1e-6) return false;
+    pitch = std::atan((v2 - std::sqrt(discriminant)) / (kGravity * horizontal_distance));
+    pitch = std::clamp(pitch, kPitchMin, kPitchMax);
+    return true;
+}
+
+Vec3 target_position_at(double time)
+{
+    const double lateral_phase = 2.0 * kPi * time / kTargetLateralPeriodS;
+    const double orbit_phase = 2.0 * kPi * time / kTargetOrbitPeriodS;
+    return {
+      kTargetX + kTargetOrbitRadius * std::sin(orbit_phase),
+      kTargetLateralAmplitudeY * std::sin(lateral_phase) + kTargetOrbitRadius * std::cos(orbit_phase),
+      kTargetZ,
+    };
+}
+
+AimbotInput ballistic_aim_input(const mjData* d, int muzzle_site, const SimGimbalStatus& status)
+{
+    const mjtNum* muzzle = d->site_xpos + 3 * muzzle_site;
+    Vec3 muzzle_pos{muzzle[0], muzzle[1], muzzle[2]};
+    Vec3 aim = target_position_at(d->time);
+    double pitch = 0.0;
+
+    for (int i = 0; i < 4; ++i) {
+        const Vec3 delta = aim - muzzle_pos;
+        const double yaw = std::atan2(delta.y, delta.x);
+        const double horizontal = norm_xy(delta);
+        if (!ballistic_pitch(horizontal, delta.z, pitch)) {
+            pitch = std::atan2(delta.z, horizontal);
+        }
+        const double tof = horizontal / std::max(0.1, kBulletSpeed * std::cos(pitch));
+        aim = target_position_at(d->time + tof);
+        (void)yaw;
+    }
+
+    const Vec3 delta = aim - muzzle_pos;
+    const double yaw = std::atan2(delta.y, delta.x);
+    const double horizontal = norm_xy(delta);
+    if (!ballistic_pitch(horizontal, delta.z, pitch)) pitch = std::atan2(delta.z, horizontal);
+
+    AimbotInput input{};
+    input.target_x = aim.x;
+    input.target_y = aim.y;
+    input.target_z = aim.z;
+    input.target_yaw = yaw;
+    input.target_pitch = pitch;
+    input.yaw_error = wrap_pi(input.target_yaw - status.yaw);
+    input.pitch_error = input.target_pitch - status.pitch;
+    return input;
+}
+
+void hide_bullet(mjData* d, int mocap_id)
+{
+    d->mocap_pos[3 * mocap_id + 0] = 0.0;
+    d->mocap_pos[3 * mocap_id + 1] = 0.0;
+    d->mocap_pos[3 * mocap_id + 2] = -10.0;
+    d->mocap_quat[4 * mocap_id + 0] = 1.0;
+    d->mocap_quat[4 * mocap_id + 1] = 0.0;
+    d->mocap_quat[4 * mocap_id + 2] = 0.0;
+    d->mocap_quat[4 * mocap_id + 3] = 0.0;
+}
+
+void reset_bullets(std::array<Bullet, kMaxBullets>& bullets, mjData* d)
+{
+    for (auto& bullet : bullets) {
+        bullet.active = false;
+        bullet.scored = false;
+        bullet.spawn_time = 0.0;
+        bullet.prev_pos = {};
+        bullet.pos = {};
+        bullet.vel = {};
+        if (bullet.mocap_id >= 0) hide_bullet(d, bullet.mocap_id);
+    }
+}
+
+Vec3 bullet_position_at(const Bullet& bullet, double time)
+{
+    const double t = time - bullet.spawn_time;
+    return {
+      bullet.pos.x + bullet.vel.x * t,
+      bullet.pos.y + bullet.vel.y * t,
+      bullet.pos.z + bullet.vel.z * t - 0.5 * kGravity * t * t,
+    };
+}
+
+void spawn_bullet(std::array<Bullet, kMaxBullets>& bullets, const mjData* d, int muzzle_site, int shot_index)
+{
+    Bullet& bullet = bullets[shot_index % kMaxBullets];
+    const mjtNum* muzzle = d->site_xpos + 3 * muzzle_site;
+    const mjtNum* muzzle_xmat = d->site_xmat + 9 * muzzle_site;
+    const Vec3 dir{muzzle_xmat[0], muzzle_xmat[3], muzzle_xmat[6]};
+    bullet.active = true;
+    bullet.scored = false;
+    bullet.spawn_time = d->time;
+    bullet.pos = {muzzle[0], muzzle[1], muzzle[2]};
+    bullet.prev_pos = bullet.pos;
+    bullet.vel = dir * kBulletSpeed;
+}
+
+void update_bullets(
+  std::array<Bullet, kMaxBullets>& bullets, const mjModel* m, mjData* d, int target_body,
+  int target_geom, int& score, bool& last_shot_hit)
+{
+    for (auto& bullet : bullets) {
+        if (!bullet.active) continue;
+        const Vec3 current = bullet_position_at(bullet, d->time);
+        if (!bullet.scored && segment_hits_expanded_target_box(m, d, bullet.prev_pos, current, target_body, target_geom)) {
+            bullet.scored = true;
+            bullet.active = false;
+            ++score;
+            last_shot_hit = true;
+            if (bullet.mocap_id >= 0) hide_bullet(d, bullet.mocap_id);
+            continue;
+        }
+        bullet.prev_pos = current;
+        if (bullet.mocap_id >= 0) {
+            d->mocap_pos[3 * bullet.mocap_id + 0] = current.x;
+            d->mocap_pos[3 * bullet.mocap_id + 1] = current.y;
+            d->mocap_pos[3 * bullet.mocap_id + 2] = current.z;
+        }
+        if (current.z < -1.0 || d->time - bullet.spawn_time > 3.0) {
+            bullet.active = false;
+            if (bullet.mocap_id >= 0) hide_bullet(d, bullet.mocap_id);
+        }
+    }
+}
+
 std::string xml_path_from_args(int argc, char** argv)
 {
     if (argc >= 2) return argv[1];
@@ -211,6 +418,7 @@ int main(int argc, char** argv)
     const int muzzle_site = mj_name2id(m, mjOBJ_SITE, "muzzle_site");
     const int target_site = mj_name2id(m, mjOBJ_SITE, "target_site");
     const int gimbal_camera = mj_name2id(m, mjOBJ_CAMERA, "gimbal_pov");
+    std::array<int, kMaxBullets> bullet_mocaps{};
 
     if (yaw_joint < 0 || pitch_joint < 0 || yaw_motor < 0 || pitch_motor < 0 ||
         target_geom < 0 || target_mocap < 0 || muzzle_site < 0 || target_site < 0 ||
@@ -225,6 +433,19 @@ int main(int argc, char** argv)
     const int pitch_qpos_addr = m->jnt_qposadr[pitch_joint];
     const int yaw_qvel_addr = m->jnt_dofadr[yaw_joint];
     const int pitch_qvel_addr = m->jnt_dofadr[pitch_joint];
+
+    for (int i = 0; i < kMaxBullets; ++i) {
+        char name[32];
+        std::snprintf(name, sizeof(name), "bullet_%d", i);
+        const int body_id = mj_name2id(m, mjOBJ_BODY, name);
+        if (body_id < 0 || m->body_mocapid[body_id] < 0) {
+            std::fprintf(stderr, "Missing required bullet mocap body %s\n", name);
+            mj_deleteData(d);
+            mj_deleteModel(m);
+            return 1;
+        }
+        bullet_mocaps[i] = m->body_mocapid[body_id];
+    }
 
     if (!glfwInit()) {
         std::fprintf(stderr, "Failed to initialize GLFW\n");
@@ -269,6 +490,9 @@ int main(int argc, char** argv)
     double first_shot_time = -1.0;
     double last_shot_time = -1.0;
     double last_auto_shot_time = -1.0;
+    std::array<Bullet, kMaxBullets> bullets{};
+    for (int i = 0; i < kMaxBullets; ++i) bullets[i].mocap_id = bullet_mocaps[i];
+    reset_bullets(bullets, d);
     hw::Command command{};
     reset_command_to_current_gimbal(command, d, yaw_qpos_addr, pitch_qpos_addr);
     glfwSetInputMode(w, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
@@ -291,6 +515,7 @@ int main(int argc, char** argv)
             first_shot_time = -1.0;
             last_shot_time = -1.0;
             last_auto_shot_time = -1.0;
+            reset_bullets(bullets, d);
         }
         reset_prev = reset_now;
 
@@ -318,6 +543,7 @@ int main(int argc, char** argv)
             last_shot_time = -1.0;
             last_auto_shot_time = -1.0;
             shot_prev = false;
+            reset_bullets(bullets, d);
             if (aimbot_enabled) {
                 cam.type = mjCAMERA_FIXED;
                 cam.fixedcamid = gimbal_camera;
@@ -341,19 +567,7 @@ int main(int argc, char** argv)
         pre_status.pitch = d->qpos[pitch_qpos_addr];
         pre_status.pitch_vel = d->qvel[pitch_qvel_addr];
 
-        const mjtNum* pre_muzzle = d->site_xpos + 3 * muzzle_site;
-        const mjtNum* pre_target = d->site_xpos + 3 * target_site;
-        const double pre_dx = pre_target[0] - pre_muzzle[0];
-        const double pre_dy = pre_target[1] - pre_muzzle[1];
-        const double pre_dz = pre_target[2] - pre_muzzle[2];
-        AimbotInput pre_input{};
-        pre_input.target_x = pre_target[0];
-        pre_input.target_y = pre_target[1];
-        pre_input.target_z = pre_target[2];
-        pre_input.target_yaw = std::atan2(pre_dy, pre_dx);
-        pre_input.target_pitch = std::atan2(pre_dz, std::hypot(pre_dx, pre_dy));
-        pre_input.yaw_error = wrap_pi(pre_input.target_yaw - pre_status.yaw);
-        pre_input.pitch_error = pre_input.target_pitch - pre_status.pitch;
+        AimbotInput pre_input = ballistic_aim_input(d, muzzle_site, pre_status);
 
         double nx, ny;
         glfwGetCursorPos(w, &nx, &ny);
@@ -431,20 +645,24 @@ int main(int argc, char** argv)
 
         const bool manual_shot_now = glfwGetMouseButton(w, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
         const bool manual_shot_edge = cam.type == mjCAMERA_FIXED && manual_shot_now && !shot_prev;
+        const bool auto_aimed =
+          aimbot_enabled && std::abs(wrap_pi(command.yaw - status.yaw)) < 0.015 &&
+          std::abs(command.pitch - status.pitch) < 0.015;
         const bool auto_ready =
-          aimbot_enabled && shots_fired < 10 && ray_hits_target_box(m, d, muzzle_site, target_body, target_geom) &&
+          auto_aimed && shots_fired < 10 &&
           (last_auto_shot_time < 0.0 || d->time - last_auto_shot_time >= kAutoShotCooldownS);
         const bool fire_now = shots_fired < 10 && (manual_shot_edge || auto_ready);
         command.shoot = fire_now;
         if (fire_now) {
             if (shots_fired == 0) first_shot_time = d->time;
+            spawn_bullet(bullets, d, muzzle_site, shots_fired);
             ++shots_fired;
             if (shots_fired == 10) last_shot_time = d->time;
-            last_shot_hit = ray_hits_target_box(m, d, muzzle_site, target_body, target_geom);
-            if (last_shot_hit) ++score;
+            last_shot_hit = false;
             if (auto_ready) last_auto_shot_time = d->time;
         }
         shot_prev = manual_shot_now;
+        update_bullets(bullets, m, d, target_body, target_geom, score, last_shot_hit);
 
         if (cam.type == mjCAMERA_FIXED && !aimbot_enabled) {
             command.yaw = d->qpos[yaw_qpos_addr];
