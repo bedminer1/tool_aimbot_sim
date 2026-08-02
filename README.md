@@ -7,7 +7,7 @@ Current scope is intentionally small:
 - yaw/pitch gimbal
 - red square target moving left/right in front of the gimbal
 - manual A/D yaw control and W/S pitch control
-- starts in a fixed gimbal POV camera looking straight at the target
+- starts in a fixed gimbal POV camera mounted slightly above the barrel and angled down so the sight dot is visible
 - aimbot-style `hw::Command` output fields for bridging to `27_aimbot_software`
 - on-screen telemetry for target yaw/pitch, yaw/pitch error, command velocities, and simulated gimbal status
 

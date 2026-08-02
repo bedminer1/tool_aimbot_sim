@@ -45,8 +45,8 @@
           <geom name="muzzle" type="cylinder" size="0.032 0.035" pos="0.72 0 0" euler="0 1.57079632679 0" rgba="0.6 0.6 0.08 1" mass="0.05"/>
           <site name="muzzle_site" pos="0.76 0 0" size="0.02" rgba="1 1 0 1"/>
           <site name="aim_ray" pos="1.5 0 0" size="0.01" rgba="0 1 0 0.45"/>
-          <!-- Camera frame: camera looks along -Z, so local -Z is aligned to gimbal +X. -->
-          <camera name="gimbal_pov" pos="0.10 0 0.035" xyaxes="0 -1 0 0 0 1" fovy="55"/>
+          <!-- Camera frame: camera looks along -Z. Mount it above the barrel and tilt down so the sight dot stays visible. -->
+          <camera name="gimbal_pov" pos="0.10 0 0.12" xyaxes="0 -1 0 0.139173 0 0.990268" fovy="55"/>
         </body>
       </body>
     </body>

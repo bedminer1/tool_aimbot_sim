@@ -39,10 +39,12 @@ int main()
     const int target_body = mj_name2id(m, mjOBJ_BODY, "target");
     const int target_site = mj_name2id(m, mjOBJ_SITE, "target_site");
     const int muzzle_site = mj_name2id(m, mjOBJ_SITE, "muzzle_site");
+    const int aim_ray_site = mj_name2id(m, mjOBJ_SITE, "aim_ray");
     const int gimbal_camera = mj_name2id(m, mjOBJ_CAMERA, "gimbal_pov");
 
     if (yaw_joint < 0 || pitch_joint < 0 || yaw_motor < 0 || pitch_motor < 0 ||
-        target_body < 0 || target_site < 0 || muzzle_site < 0 || gimbal_camera < 0) {
+        target_body < 0 || target_site < 0 || muzzle_site < 0 || aim_ray_site < 0 ||
+        gimbal_camera < 0) {
         std::printf("FAIL required MJCF name missing\n");
         return 1;
     }
@@ -69,6 +71,7 @@ int main()
 
     const mjtNum* initial_camera = d->cam_xpos + 3 * gimbal_camera;
     const mjtNum* initial_target = d->site_xpos + 3 * target_site;
+    const mjtNum* initial_aim_ray = d->site_xpos + 3 * aim_ray_site;
     double view_dir[3] = {
       -d->cam_xmat[9 * gimbal_camera + 2],
       -d->cam_xmat[9 * gimbal_camera + 5],
@@ -84,6 +87,11 @@ int main()
     const double camera_alignment =
       (view_dir[0] * to_target[0] + view_dir[1] * to_target[1] + view_dir[2] * to_target[2]) /
       to_target_norm;
+    const double initial_camera_z = initial_camera[2];
+    const double initial_aim_ray_z = initial_aim_ray[2];
+    const double initial_view_z = view_dir[2];
+    const bool camera_above_aim_ray = initial_camera[2] > initial_aim_ray[2] + 0.05;
+    const bool camera_angled_down = view_dir[2] < -0.10;
 
     for (int i = 0; i < 150; ++i) {
         d->mocap_pos[3 * target_mocap + 0] = 3.0;
@@ -145,9 +153,11 @@ int main()
 
     std::printf(
       "yaw=%.3f yaw_vel=%.3f pitch=%.3f pitch_vel=%.3f yaw_coast=%.3f pitch_coast=%.3f "
-      "target_yaw=%.3f target_pitch=%.3f yaw_error=%.3f pitch_error=%.3f camera_alignment=%.3f\n",
+      "target_yaw=%.3f target_pitch=%.3f yaw_error=%.3f pitch_error=%.3f camera_alignment=%.3f "
+      "camera_z=%.3f aim_z=%.3f view_z=%.3f\n",
       yaw_after_press, yaw_vel_after_press, pitch_after_press, pitch_vel_after_press, yaw_coast,
-      pitch_coast, target_yaw, target_pitch, yaw_error, pitch_error, camera_alignment);
+      pitch_coast, target_yaw, target_pitch, yaw_error, pitch_error, camera_alignment,
+      initial_camera_z, initial_aim_ray_z, initial_view_z);
 
     mj_deleteData(d);
     mj_deleteModel(m);
@@ -174,6 +184,10 @@ int main()
     }
     if (camera_alignment < 0.99) {
         std::printf("FAIL gimbal POV camera is not aimed at the initial target\n");
+        return 1;
+    }
+    if (!camera_above_aim_ray || !camera_angled_down) {
+        std::printf("FAIL gimbal POV camera is not mounted higher and angled down\n");
         return 1;
     }
 
