@@ -23,10 +23,11 @@ constexpr double kManualPitchRate = 2.4;
 constexpr double kMaxYawVel = 4.0;
 constexpr double kMaxPitchVel = 4.0;
 constexpr int kMaxShots = 100;
-// RMUL 3v3 sentry-style 17 mm barrel heat model.
-constexpr double kHeatLimit = 400.0;
+// RMUC 2026 sentry barrel heat (Rule Manual §3.5, p.28 / §Launching Mechanisms, p.67).
+constexpr double kHeatLimit = 260.0;
+constexpr double kHeatHardLock = 360.0;
 constexpr double kHeatPerShot = 10.0;
-constexpr double kHeatCoolingPerSecond = 60.0;
+constexpr double kHeatCoolingPerSecond = 30.0;
 constexpr double kPitchMin = -0.8;
 constexpr double kPitchMax = 0.8;
 

@@ -60,8 +60,8 @@ Later baseline/RL work can swap this for actuator dynamics behind a mode flag.
 
 Scoring:
 
-- each run has 100 shots (RMUL 3v3 sentry-style 17 mm barrel heat)
-- each shot adds 10 heat; barrel cools at 60/s and stays under 400
+- each run has 100 shots (RMUC 2026 sentry heat, Rule Manual §3.5/p.28 + §Launching Mechanisms/p.67)
+- each shot adds 10 heat; barrel cools at 30/s, soft-locks at 260, hard-locks at 360
 - bullets travel at 24.8 m/s on a ballistic trajectory
 - score increments when the bullet intersects the moving target plate
 - timer starts on the first shot and stops on the hundredth shot

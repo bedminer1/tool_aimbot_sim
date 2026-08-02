@@ -31,11 +31,14 @@ constexpr double kBulletRadius = 0.017 / 2.0;
 constexpr double kGravity = 9.81;
 constexpr int kMaxShots = 100;
 constexpr int kMaxBullets = kMaxShots;
-// RMUL 3v3 sentry-style 17 mm barrel heat model.
-// Real robots receive these parameters from the referee status.
-constexpr double kHeatLimit = 400.0;
+// RMUC 2026 sentry barrel heat (Rule Manual §3.5, p.28 / §Launching Mechanisms, p.67).
+// Q0 = heat limit (soft lock: video cut + launcher locked until Q1=0).
+// Q2 = Q0 + 100 = hard lock (launcher locked for remainder of round).
+// Heat rises by 10 per 17 mm projectile, cools at 30/s (10 Hz × 3/cycle).
+constexpr double kHeatLimit = 260.0;
+constexpr double kHeatHardLock = 360.0;
 constexpr double kHeatPerShot = 10.0;
-constexpr double kHeatCoolingPerSecond = 60.0;
+constexpr double kHeatCoolingPerSecond = 30.0;
 constexpr double kPitchMin = -0.8;
 constexpr double kPitchMax = 0.8;
 
@@ -718,13 +721,13 @@ int main(int argc, char** argv)
           left,
           sizeof(left),
           "Mouse:aim T:aimbot %s F:camera POV/free R:reset Esc:quit\n"
-          "shots %d/100 score %d last=%s heat %.0f/%.0f time %.2fs\n"
+          "shots %d/100 score %d last=%s heat %.0f+%.0f/%.0f time %.2fs\n"
           "input target=(%.2f, %.2f, %.2f) target_yaw=%+.3f target_pitch=%+.3f\n"
           "error yaw=%+.3f pitch=%+.3f\n"
           "Command{shoot=%d yaw=%+.3f yaw_vel=%+.3f pitch=%+.3f pitch_vel=%+.3f}\n"
           "status yaw=%+.3f yaw_vel=%+.3f pitch=%+.3f pitch_vel=%+.3f ctrl=(%+.2f,%+.2f)",
           aimbot_enabled ? "ON" : "OFF", shots_fired, score, last_shot_hit ? "HIT" : "MISS",
-          barrel_heat, kHeatLimit, shot_elapsed,
+          barrel_heat, kHeatPerShot, kHeatLimit, shot_elapsed,
           input.target_x, input.target_y, input.target_z, input.target_yaw, input.target_pitch,
           input.yaw_error, input.pitch_error, command.shoot ? 1 : 0, command.yaw, command.yaw_vel, command.pitch,
           command.pitch_vel, status.yaw, status.yaw_vel, status.pitch, status.pitch_vel,
