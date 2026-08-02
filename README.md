@@ -9,6 +9,7 @@ Current scope is intentionally small:
 - target orientation follows the top-down clockwise orbit so one face points inward and the other outward
 - gimbal base is raised so its bottom sits just above the top of the target
 - mouse-controlled yaw/pitch aiming from the gimbal POV
+- left-click shooting with 10 scored shots per run
 - starts in a fixed gimbal POV camera mounted slightly above the barrel and angled down so the sight dot is visible
 - aimbot-style `hw::Command` output fields for bridging to `27_aimbot_software`
 - on-screen telemetry for target yaw/pitch, yaw/pitch error, command velocities, and simulated gimbal status
@@ -40,6 +41,7 @@ Optional explicit XML path:
 ## Controls
 
 - move mouse: aim yaw/pitch
+- left click: fire one shot
 - `F`: toggle gimbal POV / free camera
 - `R`: reset
 - `Esc`: quit
@@ -53,6 +55,13 @@ Manual aiming is kinematic velocity control for responsiveness:
 - `command.yaw` / `command.pitch` are reset to current gimbal angles every frame so the sim does not chase stale setpoints
 
 Later baseline/RL work can swap this for actuator dynamics behind a mode flag.
+
+Scoring:
+
+- each run has 10 shots
+- left-click fires one shot from the green laser ray
+- score increments if the ray intersects the target at click time
+- `R` resets the counter and score
 
 ## Aimbot I/O bridge
 

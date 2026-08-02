@@ -44,6 +44,13 @@ struct SimGimbalStatus
     double pitch_vel = 0.0;
 };
 
+struct Vec3
+{
+    double x = 0.0;
+    double y = 0.0;
+    double z = 0.0;
+};
+
 double wrap_pi(double x)
 {
     while (x > kPi) x -= 2.0 * kPi;
@@ -83,6 +90,50 @@ void set_orbiting_target_pose(mjData* d, int target_mocap)
       0.0, 0.0, 1.0,
     };
     mju_mat2Quat(d->mocap_quat + 4 * target_mocap, rot);
+}
+
+double dot(const mjtNum* axis, const Vec3& v)
+{
+    return axis[0] * v.x + axis[1] * v.y + axis[2] * v.z;
+}
+
+bool ray_hits_target_box(const mjModel* m, const mjData* d, int muzzle_site, int target_body, int target_geom)
+{
+    const mjtNum* origin = d->site_xpos + 3 * muzzle_site;
+    const mjtNum* dir = d->site_xmat + 9 * muzzle_site;  // local +X / green laser direction
+    const mjtNum* body_pos = d->xpos + 3 * target_body;
+    const mjtNum* body_xmat = d->xmat + 9 * target_body;
+    const mjtNum* half = m->geom_size + 3 * target_geom;
+
+    const Vec3 delta{origin[0] - body_pos[0], origin[1] - body_pos[1], origin[2] - body_pos[2]};
+    const Vec3 dir_world{dir[0], dir[1], dir[2]};
+    const double origin_vals[3] = {
+      dot(body_xmat + 0, delta),
+      dot(body_xmat + 3, delta),
+      dot(body_xmat + 6, delta),
+    };
+    const double dir_vals[3] = {
+      dot(body_xmat + 0, dir_world),
+      dot(body_xmat + 3, dir_world),
+      dot(body_xmat + 6, dir_world),
+    };
+    const double half_vals[3] = {half[0], half[1], half[2]};
+
+    double t_min = 0.0;
+    double t_max = 1e9;
+    for (int i = 0; i < 3; ++i) {
+        if (std::abs(dir_vals[i]) < 1e-9) {
+            if (origin_vals[i] < -half_vals[i] || origin_vals[i] > half_vals[i]) return false;
+            continue;
+        }
+        double t1 = (-half_vals[i] - origin_vals[i]) / dir_vals[i];
+        double t2 = (half_vals[i] - origin_vals[i]) / dir_vals[i];
+        if (t1 > t2) std::swap(t1, t2);
+        t_min = std::max(t_min, t1);
+        t_max = std::min(t_max, t2);
+        if (t_min > t_max) return false;
+    }
+    return t_max >= 0.0;
 }
 
 std::string xml_path_from_args(int argc, char** argv)
@@ -135,13 +186,15 @@ int main(int argc, char** argv)
     const int yaw_motor = mj_name2id(m, mjOBJ_ACTUATOR, "yaw_motor");
     const int pitch_motor = mj_name2id(m, mjOBJ_ACTUATOR, "pitch_motor");
     const int target_body = mj_name2id(m, mjOBJ_BODY, "target");
+    const int target_geom = mj_name2id(m, mjOBJ_GEOM, "target_square");
     const int target_mocap = (target_body >= 0) ? m->body_mocapid[target_body] : -1;
     const int muzzle_site = mj_name2id(m, mjOBJ_SITE, "muzzle_site");
     const int target_site = mj_name2id(m, mjOBJ_SITE, "target_site");
     const int gimbal_camera = mj_name2id(m, mjOBJ_CAMERA, "gimbal_pov");
 
     if (yaw_joint < 0 || pitch_joint < 0 || yaw_motor < 0 || pitch_motor < 0 ||
-        target_mocap < 0 || muzzle_site < 0 || target_site < 0 || gimbal_camera < 0) {
+        target_geom < 0 || target_mocap < 0 || muzzle_site < 0 || target_site < 0 ||
+        gimbal_camera < 0) {
         std::fprintf(stderr, "Missing required MJCF names in %s\n", xml_path.c_str());
         mj_deleteData(d);
         mj_deleteModel(m);
@@ -187,6 +240,10 @@ int main(int argc, char** argv)
     bool mouse_initialized = false;
     bool reset_prev = false;
     bool camera_prev = false;
+    bool shot_prev = false;
+    int shots_fired = 0;
+    int score = 0;
+    bool last_shot_hit = false;
     hw::Command command{};
     reset_command_to_current_gimbal(command, d, yaw_qpos_addr, pitch_qpos_addr);
     glfwSetInputMode(w, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
@@ -200,6 +257,10 @@ int main(int argc, char** argv)
             cam.fixedcamid = gimbal_camera;
             glfwSetInputMode(w, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
             mouse_initialized = false;
+            shot_prev = false;
+            shots_fired = 0;
+            score = 0;
+            last_shot_hit = false;
         }
         reset_prev = reset_now;
 
@@ -294,6 +355,14 @@ int main(int argc, char** argv)
         input.yaw_error = wrap_pi(input.target_yaw - status.yaw);
         input.pitch_error = input.target_pitch - status.pitch;
 
+        const bool shot_now = glfwGetMouseButton(w, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
+        if (cam.type == mjCAMERA_FIXED && shot_now && !shot_prev && shots_fired < 10) {
+            ++shots_fired;
+            last_shot_hit = ray_hits_target_box(m, d, muzzle_site, target_body, target_geom);
+            if (last_shot_hit) ++score;
+        }
+        shot_prev = shot_now;
+
         if (cam.type == mjCAMERA_FIXED) {
             command.yaw = d->qpos[yaw_qpos_addr];
             command.pitch = d->qpos[pitch_qpos_addr];
@@ -319,10 +388,12 @@ int main(int argc, char** argv)
           left,
           sizeof(left),
           "Mouse:aim F:camera POV/free R:reset Esc:quit\n"
+          "shots %d/10 score %d last=%s\n"
           "input target=(%.2f, %.2f, %.2f) target_yaw=%+.3f target_pitch=%+.3f\n"
           "error yaw=%+.3f pitch=%+.3f\n"
           "Command{yaw=%+.3f yaw_vel=%+.3f pitch=%+.3f pitch_vel=%+.3f}\n"
           "status yaw=%+.3f yaw_vel=%+.3f pitch=%+.3f pitch_vel=%+.3f ctrl=(%+.2f,%+.2f)",
+          shots_fired, score, last_shot_hit ? "HIT" : "MISS",
           input.target_x, input.target_y, input.target_z, input.target_yaw, input.target_pitch,
           input.yaw_error, input.pitch_error, command.yaw, command.yaw_vel, command.pitch,
           command.pitch_vel, status.yaw, status.yaw_vel, status.pitch, status.pitch_vel,

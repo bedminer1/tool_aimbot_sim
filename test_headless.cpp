@@ -27,6 +27,48 @@ double wrap_pi(double x)
     return x;
 }
 
+struct Vec3
+{
+    double x = 0.0;
+    double y = 0.0;
+    double z = 0.0;
+};
+
+double dot(const mjtNum* axis, const Vec3& v)
+{
+    return axis[0] * v.x + axis[1] * v.y + axis[2] * v.z;
+}
+
+bool ray_hits_box(const mjModel* m, const mjData* d, const Vec3& origin, const Vec3& dir,
+                  int target_body, int target_geom)
+{
+    const mjtNum* body_pos = d->xpos + 3 * target_body;
+    const mjtNum* body_xmat = d->xmat + 9 * target_body;
+    const mjtNum* half = m->geom_size + 3 * target_geom;
+    const Vec3 delta{origin.x - body_pos[0], origin.y - body_pos[1], origin.z - body_pos[2]};
+    const double origin_vals[3] = {dot(body_xmat + 0, delta), dot(body_xmat + 3, delta),
+                                   dot(body_xmat + 6, delta)};
+    const double dir_vals[3] = {dot(body_xmat + 0, dir), dot(body_xmat + 3, dir),
+                                dot(body_xmat + 6, dir)};
+    const double half_vals[3] = {half[0], half[1], half[2]};
+
+    double t_min = 0.0;
+    double t_max = 1e9;
+    for (int i = 0; i < 3; ++i) {
+        if (std::abs(dir_vals[i]) < 1e-9) {
+            if (origin_vals[i] < -half_vals[i] || origin_vals[i] > half_vals[i]) return false;
+            continue;
+        }
+        double t1 = (-half_vals[i] - origin_vals[i]) / dir_vals[i];
+        double t2 = (half_vals[i] - origin_vals[i]) / dir_vals[i];
+        if (t1 > t2) std::swap(t1, t2);
+        t_min = std::max(t_min, t1);
+        t_max = std::min(t_max, t2);
+        if (t_min > t_max) return false;
+    }
+    return t_max >= 0.0;
+}
+
 void set_orbiting_target_pose(mjData* d, int target_mocap)
 {
     const double lateral_phase = 2.0 * kPi * d->time / kTargetLateralPeriodS;
@@ -194,14 +236,27 @@ int main()
     const double yaw_error = wrap_pi(target_yaw - yaw_after_release);
     const double pitch_error = target_pitch - pitch_after_release;
 
+    const mjtNum* target_pos = d->xpos + 3 * target_body;
+    const mjtNum* target_xaxis = d->xmat + 9 * target_body;
+    const Vec3 hit_origin{
+      target_pos[0] - target_xaxis[0] * 0.5,
+      target_pos[1] - target_xaxis[1] * 0.5,
+      target_pos[2] - target_xaxis[2] * 0.5,
+    };
+    const Vec3 hit_dir{target_xaxis[0], target_xaxis[1], target_xaxis[2]};
+    const Vec3 miss_origin{hit_origin.x, hit_origin.y, hit_origin.z + 0.5};
+    const bool shot_hit = ray_hits_box(m, d, hit_origin, hit_dir, target_body, target_geom);
+    const bool shot_miss = ray_hits_box(m, d, miss_origin, hit_dir, target_body, target_geom);
+
     std::printf(
       "yaw=%.3f yaw_vel=%.3f pitch=%.3f pitch_vel=%.3f yaw_coast=%.3f pitch_coast=%.3f "
       "target_yaw=%.3f target_pitch=%.3f yaw_error=%.3f pitch_error=%.3f camera_alignment=%.3f "
-      "camera_z=%.3f aim_z=%.3f view_z=%.3f target_travel=%.3f target_xdelta=%.3f target_xdot=%.3f\n",
+      "camera_z=%.3f aim_z=%.3f view_z=%.3f target_travel=%.3f target_xdelta=%.3f target_xdot=%.3f "
+      "shot_hit=%d shot_miss=%d\n",
       yaw_after_press, yaw_vel_after_press, pitch_after_press, pitch_vel_after_press, yaw_coast,
       pitch_coast, target_yaw, target_pitch, yaw_error, pitch_error, camera_alignment,
       initial_camera_z, initial_aim_ray_z, initial_view_z, target_travel_yz, target_topdown_x_delta,
-      initial_target_xaxis_dot_outward);
+      initial_target_xaxis_dot_outward, shot_hit ? 1 : 0, shot_miss ? 1 : 0);
 
     mj_deleteData(d);
     mj_deleteModel(m);
@@ -245,6 +300,10 @@ int main()
     if (target_travel_yz < 0.05 || target_topdown_x_delta < 0.02 ||
         initial_target_xaxis_dot_outward < 0.99) {
         std::printf("FAIL target does not orbit/faces the wrong way\n");
+        return 1;
+    }
+    if (!shot_hit || shot_miss) {
+        std::printf("FAIL shot hit/miss classifier is wrong\n");
         return 1;
     }
 
