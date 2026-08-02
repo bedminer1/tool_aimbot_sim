@@ -22,9 +22,11 @@ constexpr double kManualYawRate = 3.2;
 constexpr double kManualPitchRate = 2.4;
 constexpr double kMaxYawVel = 4.0;
 constexpr double kMaxPitchVel = 4.0;
-constexpr double kAutoYawKp = 9.0;
-constexpr double kAutoPitchKp = 9.0;
-constexpr double kAutoShotCooldownS = 0.12;
+constexpr int kMaxShots = 100;
+// RMUL 3v3 sentry-style 17 mm barrel heat model.
+constexpr double kHeatLimit = 400.0;
+constexpr double kHeatPerShot = 10.0;
+constexpr double kHeatCoolingPerSecond = 60.0;
 constexpr double kPitchMin = -0.8;
 constexpr double kPitchMax = 0.8;
 
@@ -106,13 +108,11 @@ bool segment_hits_expanded_box(
     return true;
 }
 
-bool ballistic_pitch(double horizontal, double dz, double& pitch)
+void cool_heat(double& heat, double now, double& last_heat_update_time)
 {
-    const double v2 = kBulletSpeed * kBulletSpeed;
-    const double disc = v2 * v2 - kGravity * (kGravity * horizontal * horizontal + 2.0 * dz * v2);
-    if (disc < 0.0 || horizontal < 1e-6) return false;
-    pitch = std::atan((v2 - std::sqrt(disc)) / (kGravity * horizontal));
-    return true;
+    const double dt = std::max(0.0, now - last_heat_update_time);
+    heat = std::max(0.0, heat - kHeatCoolingPerSecond * dt);
+    last_heat_update_time = now;
 }
 
 void set_orbiting_target_pose(mjData* d, int target_mocap)
@@ -159,13 +159,11 @@ int main()
     const int target_geom = mj_name2id(m, mjOBJ_GEOM, "target_square");
     const int target_site = mj_name2id(m, mjOBJ_SITE, "target_site");
     const int muzzle_site = mj_name2id(m, mjOBJ_SITE, "muzzle_site");
-    const int aim_ray_site = mj_name2id(m, mjOBJ_SITE, "aim_ray");
     const int gimbal_camera = mj_name2id(m, mjOBJ_CAMERA, "gimbal_pov");
 
     if (yaw_joint < 0 || pitch_joint < 0 || yaw_motor < 0 || pitch_motor < 0 ||
         gimbal_base_body < 0 || target_body < 0 || target_geom < 0 || target_site < 0 ||
-        muzzle_site < 0 || aim_ray_site < 0 ||
-        gimbal_camera < 0) {
+        muzzle_site < 0 || gimbal_camera < 0) {
         std::printf("FAIL required MJCF name missing\n");
         return 1;
     }
@@ -201,7 +199,7 @@ int main()
 
     const mjtNum* initial_camera = d->cam_xpos + 3 * gimbal_camera;
     const mjtNum* initial_target = d->site_xpos + 3 * target_site;
-    const mjtNum* initial_aim_ray = d->site_xpos + 3 * aim_ray_site;
+    const mjtNum* initial_muzzle = d->site_xpos + 3 * muzzle_site;
     double view_dir[3] = {
       -d->cam_xmat[9 * gimbal_camera + 2],
       -d->cam_xmat[9 * gimbal_camera + 5],
@@ -218,9 +216,9 @@ int main()
       (view_dir[0] * to_target[0] + view_dir[1] * to_target[1] + view_dir[2] * to_target[2]) /
       to_target_norm;
     const double initial_camera_z = initial_camera[2];
-    const double initial_aim_ray_z = initial_aim_ray[2];
+    const double initial_muzzle_z = initial_muzzle[2];
     const double initial_view_z = view_dir[2];
-    const bool camera_above_aim_ray = initial_camera[2] > initial_aim_ray[2] + 0.05;
+    const bool camera_above_muzzle = initial_camera[2] > initial_muzzle[2] + 0.05;
     const bool camera_angled_down = view_dir[2] < -0.10;
 
     for (int i = 0; i < 150; ++i) {
@@ -294,46 +292,18 @@ int main()
     const bool shot_hit = ray_hits_box(m, d, hit_origin, hit_dir, target_body, target_geom);
     const bool shot_miss = ray_hits_box(m, d, miss_origin, hit_dir, target_body, target_geom);
 
-    d->qpos[yaw_qpos] = 0.0;
-    d->qpos[pitch_qpos] = 0.0;
-    mj_forward(m, d);
-    const mjtNum* aim_muzzle = d->site_xpos + 3 * muzzle_site;
-    const mjtNum* aim_target = d->xpos + 3 * target_body;
-    const double aim_dx = aim_target[0] - aim_muzzle[0];
-    const double aim_dy = aim_target[1] - aim_muzzle[1];
-    const double aim_dz = aim_target[2] - aim_muzzle[2];
-    d->qpos[yaw_qpos] = std::atan2(aim_dy, aim_dx);
-    double ballistic_center_pitch = 0.0;
-    if (!ballistic_pitch(std::hypot(aim_dx, aim_dy), aim_dz, ballistic_center_pitch)) {
-        ballistic_center_pitch = std::atan2(aim_dz, std::hypot(aim_dx, aim_dy));
-    }
-    d->qpos[pitch_qpos] = ballistic_center_pitch;
-    mj_forward(m, d);
-    const mjtNum* muzzle_xmat = d->site_xmat + 9 * muzzle_site;
-    const mjtNum* muzzle_pos = d->site_xpos + 3 * muzzle_site;
-    const Vec3 muzzle_hit_origin{muzzle_pos[0], muzzle_pos[1], muzzle_pos[2]};
-    const Vec3 muzzle_hit_dir{muzzle_xmat[0], muzzle_xmat[3], muzzle_xmat[6]};
-    bool muzzle_center_hit = false;
-    Vec3 last_pos = muzzle_hit_origin;
-    for (double t = 0.01; t < 1.5 && !muzzle_center_hit; t += 0.01) {
-        const Vec3 pos{
-          muzzle_hit_origin.x + muzzle_hit_dir.x * kBulletSpeed * t,
-          muzzle_hit_origin.y + muzzle_hit_dir.y * kBulletSpeed * t,
-          muzzle_hit_origin.z + muzzle_hit_dir.z * kBulletSpeed * t - 0.5 * kGravity * t * t,
-        };
-        muzzle_center_hit = segment_hits_expanded_box(m, d, last_pos, pos, target_body, target_geom);
-        last_pos = pos;
-    }
-
     mj_resetData(m, d);
     int auto_shots = 0;
     int auto_score = 0;
-    double last_auto_shot_time = -1.0;
+    double auto_heat = 0.0;
+    double auto_last_heat_update_time = 0.0;
+    double last_auto_shot_time_2 = -1.0;
     double auto_first_shot_time = -1.0;
     double auto_last_shot_time = -1.0;
-    for (int i = 0; i < 3000 && auto_shots < 10; ++i) {
+    for (int i = 0; i < 20000 && auto_shots < kMaxShots; ++i) {
         set_orbiting_target_pose(d, target_mocap);
         mj_forward(m, d);
+        cool_heat(auto_heat, d->time, auto_last_heat_update_time);
 
         const mjtNum* auto_muzzle = d->site_xpos + 3 * muzzle_site;
         const mjtNum* auto_target = d->site_xpos + 3 * target_site;
@@ -341,14 +311,11 @@ int main()
         const double ady = auto_target[1] - auto_muzzle[1];
         const double adz = auto_target[2] - auto_muzzle[2];
         const double target_yaw_cmd = std::atan2(ady, adx);
-        double target_pitch_cmd = 0.0;
-        if (!ballistic_pitch(std::hypot(adx, ady), adz, target_pitch_cmd)) {
-            target_pitch_cmd = std::atan2(adz, std::hypot(adx, ady));
-        }
+        double target_pitch_cmd = std::atan2(adz, std::hypot(adx, ady));
         const double yaw_error_cmd = wrap_pi(target_yaw_cmd - d->qpos[yaw_qpos]);
         const double pitch_error_cmd = target_pitch_cmd - d->qpos[pitch_qpos];
-        const double yaw_vel_cmd = std::clamp(kAutoYawKp * yaw_error_cmd, -kMaxYawVel, kMaxYawVel);
-        const double pitch_vel_cmd = std::clamp(kAutoPitchKp * pitch_error_cmd, -kMaxPitchVel, kMaxPitchVel);
+        const double yaw_vel_cmd = std::clamp(9.0 * yaw_error_cmd, -kMaxYawVel, kMaxYawVel);
+        const double pitch_vel_cmd = std::clamp(9.0 * pitch_error_cmd, -kMaxPitchVel, kMaxPitchVel);
 
         d->qpos[yaw_qpos] = std::clamp(
           wrap_pi(d->qpos[yaw_qpos] + yaw_vel_cmd * m->opt.timestep), -2.8, 2.8);
@@ -359,17 +326,18 @@ int main()
         d->time += m->opt.timestep;
         mj_forward(m, d);
 
-        const mjtNum* auto_muzzle_xmat = d->site_xmat + 9 * muzzle_site;
-        const mjtNum* auto_muzzle_pos = d->site_xpos + 3 * muzzle_site;
-        const Vec3 auto_origin{auto_muzzle_pos[0], auto_muzzle_pos[1], auto_muzzle_pos[2]};
-        const Vec3 auto_dir{auto_muzzle_xmat[0], auto_muzzle_xmat[3], auto_muzzle_xmat[6]};
-        const bool auto_hit = ray_hits_box(m, d, auto_origin, auto_dir, target_body, target_geom);
-        if (auto_hit && (last_auto_shot_time < 0.0 || d->time - last_auto_shot_time >= kAutoShotCooldownS)) {
+        const bool auto_aimed =
+          std::abs(yaw_error_cmd) < 0.015 && std::abs(pitch_error_cmd) < 0.015;
+        const bool auto_ready =
+          auto_aimed && auto_shots < kMaxShots && auto_heat + kHeatPerShot <= kHeatLimit &&
+          (last_auto_shot_time_2 < 0.0 || d->time - last_auto_shot_time_2 >= 0.12);
+        if (auto_ready) {
             if (auto_shots == 0) auto_first_shot_time = d->time;
             ++auto_shots;
             ++auto_score;
-            if (auto_shots == 10) auto_last_shot_time = d->time;
-            last_auto_shot_time = d->time;
+            auto_heat += kHeatPerShot;
+            if (auto_shots == kMaxShots) auto_last_shot_time = d->time;
+            last_auto_shot_time_2 = d->time;
         }
     }
     const double auto_elapsed = auto_last_shot_time - auto_first_shot_time;
@@ -378,12 +346,12 @@ int main()
       "yaw=%.3f yaw_vel=%.3f pitch=%.3f pitch_vel=%.3f yaw_coast=%.3f pitch_coast=%.3f "
       "target_yaw=%.3f target_pitch=%.3f yaw_error=%.3f pitch_error=%.3f camera_alignment=%.3f "
       "camera_z=%.3f aim_z=%.3f view_z=%.3f target_travel=%.3f target_xdelta=%.3f target_xdot=%.3f "
-      "shot_hit=%d shot_miss=%d muzzle_center_hit=%d auto_score=%d auto_elapsed=%.3f\n",
+      "shot_hit=%d shot_miss=%d auto_score=%d auto_elapsed=%.3f\n",
       yaw_after_press, yaw_vel_after_press, pitch_after_press, pitch_vel_after_press, yaw_coast,
       pitch_coast, target_yaw, target_pitch, yaw_error, pitch_error, camera_alignment,
-      initial_camera_z, initial_aim_ray_z, initial_view_z, target_travel_yz, target_topdown_x_delta,
-      initial_target_xaxis_dot_outward, shot_hit ? 1 : 0, shot_miss ? 1 : 0,
-      muzzle_center_hit ? 1 : 0, auto_score, auto_elapsed);
+      initial_camera_z, initial_muzzle_z, initial_view_z, target_travel_yz, target_topdown_x_delta,
+      initial_target_xaxis_dot_outward, shot_hit ? 1 : 0, shot_miss ? 1 : 0, auto_score,
+      auto_elapsed);
 
     mj_deleteData(d);
     mj_deleteModel(m);
@@ -412,8 +380,8 @@ int main()
         std::printf("FAIL gimbal POV camera is not aimed at the initial target\n");
         return 1;
     }
-    if (!camera_above_aim_ray || !camera_angled_down) {
-        std::printf("FAIL gimbal POV camera is not mounted higher and angled down\n");
+    if (!camera_above_muzzle || !camera_angled_down) {
+        std::printf("FAIL gimbal POV camera is not above the muzzle or angled down\n");
         return 1;
     }
     if (!target_size_is_140_by_125_mm) {

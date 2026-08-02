@@ -29,7 +29,13 @@ constexpr double kAutoShotCooldownS = 0.12;
 constexpr double kBulletSpeed = 24.8;  // m/s
 constexpr double kBulletRadius = 0.017 / 2.0;
 constexpr double kGravity = 9.81;
-constexpr int kMaxBullets = 10;
+constexpr int kMaxShots = 100;
+constexpr int kMaxBullets = kMaxShots;
+// RMUL 3v3 sentry-style 17 mm barrel heat model.
+// Real robots receive these parameters from the referee status.
+constexpr double kHeatLimit = 400.0;
+constexpr double kHeatPerShot = 10.0;
+constexpr double kHeatCoolingPerSecond = 60.0;
 constexpr double kPitchMin = -0.8;
 constexpr double kPitchMax = 0.8;
 
@@ -346,6 +352,18 @@ void update_bullets(
     }
 }
 
+void cool_heat(double& heat, double now, double& last_heat_update_time)
+{
+    const double dt = std::max(0.0, now - last_heat_update_time);
+    heat = std::max(0.0, heat - kHeatCoolingPerSecond * dt);
+    last_heat_update_time = now;
+}
+
+bool can_fire(double heat)
+{
+    return heat + kHeatPerShot <= kHeatLimit + 1e-9;
+}
+
 std::string xml_path_from_args(int argc, char** argv)
 {
     if (argc >= 2) return argv[1];
@@ -490,6 +508,8 @@ int main(int argc, char** argv)
     double first_shot_time = -1.0;
     double last_shot_time = -1.0;
     double last_auto_shot_time = -1.0;
+    double barrel_heat = 0.0;
+    double last_heat_update_time = 0.0;
     std::array<Bullet, kMaxBullets> bullets{};
     for (int i = 0; i < kMaxBullets; ++i) bullets[i].mocap_id = bullet_mocaps[i];
     reset_bullets(bullets, d);
@@ -515,6 +535,8 @@ int main(int argc, char** argv)
             first_shot_time = -1.0;
             last_shot_time = -1.0;
             last_auto_shot_time = -1.0;
+            barrel_heat = 0.0;
+            last_heat_update_time = 0.0;
             reset_bullets(bullets, d);
         }
         reset_prev = reset_now;
@@ -560,6 +582,8 @@ int main(int argc, char** argv)
         // Target orbits a laterally moving point. Its local -X face always looks inward.
         set_orbiting_target_pose(d, target_mocap);
         mj_forward(m, d);
+
+        cool_heat(barrel_heat, d->time, last_heat_update_time);
 
         SimGimbalStatus pre_status{};
         pre_status.yaw = d->qpos[yaw_qpos_addr];
@@ -649,15 +673,16 @@ int main(int argc, char** argv)
           aimbot_enabled && std::abs(wrap_pi(command.yaw - status.yaw)) < 0.015 &&
           std::abs(command.pitch - status.pitch) < 0.015;
         const bool auto_ready =
-          auto_aimed && shots_fired < 10 &&
+          auto_aimed && shots_fired < kMaxShots && barrel_heat + kHeatPerShot <= kHeatLimit &&
           (last_auto_shot_time < 0.0 || d->time - last_auto_shot_time >= kAutoShotCooldownS);
-        const bool fire_now = shots_fired < 10 && (manual_shot_edge || auto_ready);
+        const bool fire_now = shots_fired < kMaxShots && (manual_shot_edge || auto_ready);
         command.shoot = fire_now;
         if (fire_now) {
             if (shots_fired == 0) first_shot_time = d->time;
             spawn_bullet(bullets, d, muzzle_site, shots_fired);
             ++shots_fired;
-            if (shots_fired == 10) last_shot_time = d->time;
+            if (shots_fired == kMaxShots) last_shot_time = d->time;
+            barrel_heat += kHeatPerShot;
             last_shot_hit = false;
             if (auto_ready) last_auto_shot_time = d->time;
         }
@@ -686,20 +711,20 @@ int main(int argc, char** argv)
 
         const double shot_elapsed =
           (first_shot_time < 0.0) ? 0.0
-                                  : ((shots_fired >= 10 ? last_shot_time : d->time) - first_shot_time);
+                                  : ((shots_fired >= kMaxShots ? last_shot_time : d->time) - first_shot_time);
 
-        char left[1300];
+        char left[1400];
         std::snprintf(
           left,
           sizeof(left),
           "Mouse:aim T:aimbot %s F:camera POV/free R:reset Esc:quit\n"
-          "shots %d/10 score %d last=%s time %.2fs\n"
+          "shots %d/100 score %d last=%s heat %.0f/%.0f time %.2fs\n"
           "input target=(%.2f, %.2f, %.2f) target_yaw=%+.3f target_pitch=%+.3f\n"
           "error yaw=%+.3f pitch=%+.3f\n"
           "Command{shoot=%d yaw=%+.3f yaw_vel=%+.3f pitch=%+.3f pitch_vel=%+.3f}\n"
           "status yaw=%+.3f yaw_vel=%+.3f pitch=%+.3f pitch_vel=%+.3f ctrl=(%+.2f,%+.2f)",
           aimbot_enabled ? "ON" : "OFF", shots_fired, score, last_shot_hit ? "HIT" : "MISS",
-          shot_elapsed,
+          barrel_heat, kHeatLimit, shot_elapsed,
           input.target_x, input.target_y, input.target_z, input.target_yaw, input.target_pitch,
           input.yaw_error, input.pitch_error, command.shoot ? 1 : 0, command.yaw, command.yaw_vel, command.pitch,
           command.pitch_vel, status.yaw, status.yaw_vel, status.pitch, status.pitch_vel,

@@ -9,8 +9,8 @@ Current scope is intentionally small:
 - target orientation follows the top-down clockwise orbit so one face points inward and the other outward
 - gimbal base is raised so its bottom sits just above the top of the target
 - mouse-controlled yaw/pitch aiming from the gimbal POV
-- left-click shooting with 10 scored 17 mm bullets per run
-- `T` toggles a simple aimbot that emits the same `hw::Command` fields and fires automatically
+- left-click shooting with 100 scored 17 mm bullets per run
+- `T` toggles an aimbot that emits the same `hw::Command` fields, manages barrel heat, and fires automatically
 - starts in a fixed gimbal POV camera mounted slightly above the barrel and angled down so the sight dot is visible
 - aimbot-style `hw::Command` output fields for bridging to `27_aimbot_software`
 - on-screen telemetry for target yaw/pitch, yaw/pitch error, command velocities, and simulated gimbal status
@@ -60,11 +60,11 @@ Later baseline/RL work can swap this for actuator dynamics behind a mode flag.
 
 Scoring:
 
-- each run has 10 shots
-- left-click fires one shot from the green laser ray
+- each run has 100 shots (RMUL 3v3 sentry-style 17 mm barrel heat)
+- each shot adds 10 heat; barrel cools at 60/s and stays under 400
 - bullets travel at 24.8 m/s on a ballistic trajectory
 - score increments when the bullet intersects the moving target plate
-- timer starts on the first shot and stops on the tenth shot
+- timer starts on the first shot and stops on the hundredth shot
 - `R` resets the counter and score
 
 Aimbot mode:

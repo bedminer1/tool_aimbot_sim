@@ -44,7 +44,6 @@
           <geom name="barrel" type="box" size="0.38 0.025 0.025" pos="0.32 0 0" material="gimbal_dark" mass="0.35"/>
           <geom name="muzzle" type="cylinder" size="0.032 0.035" pos="0.72 0 0" euler="0 1.57079632679 0" rgba="0.6 0.6 0.08 1" mass="0.05"/>
           <site name="muzzle_site" pos="0.76 0 0" size="0.02" rgba="1 1 0 1"/>
-          <site name="aim_ray" pos="1.5 0 0" size="0.01" rgba="0 1 0 0.45"/>
           <!-- Camera frame: camera looks along -Z. Mount it above the barrel and tilt down so the sight dot stays visible. -->
           <camera name="gimbal_pov" pos="0.10 0 0.12" xyaxes="0 -1 0 0.139173 0 0.990268" fovy="55"/>
         </body>
@@ -67,6 +66,96 @@
     <body name="bullet_7" pos="0 0 -10" mocap="true"><geom type="sphere" size="0.0085" rgba="1 0.85 0.05 1" contype="0" conaffinity="0"/></body>
     <body name="bullet_8" pos="0 0 -10" mocap="true"><geom type="sphere" size="0.0085" rgba="1 0.85 0.05 1" contype="0" conaffinity="0"/></body>
     <body name="bullet_9" pos="0 0 -10" mocap="true"><geom type="sphere" size="0.0085" rgba="1 0.85 0.05 1" contype="0" conaffinity="0"/></body>
+    <body name="bullet_10" pos="0 0 -10" mocap="true"><geom type="sphere" size="0.0085" rgba="1 0.85 0.05 1" contype="0" conaffinity="0"/></body>
+    <body name="bullet_11" pos="0 0 -10" mocap="true"><geom type="sphere" size="0.0085" rgba="1 0.85 0.05 1" contype="0" conaffinity="0"/></body>
+    <body name="bullet_12" pos="0 0 -10" mocap="true"><geom type="sphere" size="0.0085" rgba="1 0.85 0.05 1" contype="0" conaffinity="0"/></body>
+    <body name="bullet_13" pos="0 0 -10" mocap="true"><geom type="sphere" size="0.0085" rgba="1 0.85 0.05 1" contype="0" conaffinity="0"/></body>
+    <body name="bullet_14" pos="0 0 -10" mocap="true"><geom type="sphere" size="0.0085" rgba="1 0.85 0.05 1" contype="0" conaffinity="0"/></body>
+    <body name="bullet_15" pos="0 0 -10" mocap="true"><geom type="sphere" size="0.0085" rgba="1 0.85 0.05 1" contype="0" conaffinity="0"/></body>
+    <body name="bullet_16" pos="0 0 -10" mocap="true"><geom type="sphere" size="0.0085" rgba="1 0.85 0.05 1" contype="0" conaffinity="0"/></body>
+    <body name="bullet_17" pos="0 0 -10" mocap="true"><geom type="sphere" size="0.0085" rgba="1 0.85 0.05 1" contype="0" conaffinity="0"/></body>
+    <body name="bullet_18" pos="0 0 -10" mocap="true"><geom type="sphere" size="0.0085" rgba="1 0.85 0.05 1" contype="0" conaffinity="0"/></body>
+    <body name="bullet_19" pos="0 0 -10" mocap="true"><geom type="sphere" size="0.0085" rgba="1 0.85 0.05 1" contype="0" conaffinity="0"/></body>
+    <body name="bullet_20" pos="0 0 -10" mocap="true"><geom type="sphere" size="0.0085" rgba="1 0.85 0.05 1" contype="0" conaffinity="0"/></body>
+    <body name="bullet_21" pos="0 0 -10" mocap="true"><geom type="sphere" size="0.0085" rgba="1 0.85 0.05 1" contype="0" conaffinity="0"/></body>
+    <body name="bullet_22" pos="0 0 -10" mocap="true"><geom type="sphere" size="0.0085" rgba="1 0.85 0.05 1" contype="0" conaffinity="0"/></body>
+    <body name="bullet_23" pos="0 0 -10" mocap="true"><geom type="sphere" size="0.0085" rgba="1 0.85 0.05 1" contype="0" conaffinity="0"/></body>
+    <body name="bullet_24" pos="0 0 -10" mocap="true"><geom type="sphere" size="0.0085" rgba="1 0.85 0.05 1" contype="0" conaffinity="0"/></body>
+    <body name="bullet_25" pos="0 0 -10" mocap="true"><geom type="sphere" size="0.0085" rgba="1 0.85 0.05 1" contype="0" conaffinity="0"/></body>
+    <body name="bullet_26" pos="0 0 -10" mocap="true"><geom type="sphere" size="0.0085" rgba="1 0.85 0.05 1" contype="0" conaffinity="0"/></body>
+    <body name="bullet_27" pos="0 0 -10" mocap="true"><geom type="sphere" size="0.0085" rgba="1 0.85 0.05 1" contype="0" conaffinity="0"/></body>
+    <body name="bullet_28" pos="0 0 -10" mocap="true"><geom type="sphere" size="0.0085" rgba="1 0.85 0.05 1" contype="0" conaffinity="0"/></body>
+    <body name="bullet_29" pos="0 0 -10" mocap="true"><geom type="sphere" size="0.0085" rgba="1 0.85 0.05 1" contype="0" conaffinity="0"/></body>
+    <body name="bullet_30" pos="0 0 -10" mocap="true"><geom type="sphere" size="0.0085" rgba="1 0.85 0.05 1" contype="0" conaffinity="0"/></body>
+    <body name="bullet_31" pos="0 0 -10" mocap="true"><geom type="sphere" size="0.0085" rgba="1 0.85 0.05 1" contype="0" conaffinity="0"/></body>
+    <body name="bullet_32" pos="0 0 -10" mocap="true"><geom type="sphere" size="0.0085" rgba="1 0.85 0.05 1" contype="0" conaffinity="0"/></body>
+    <body name="bullet_33" pos="0 0 -10" mocap="true"><geom type="sphere" size="0.0085" rgba="1 0.85 0.05 1" contype="0" conaffinity="0"/></body>
+    <body name="bullet_34" pos="0 0 -10" mocap="true"><geom type="sphere" size="0.0085" rgba="1 0.85 0.05 1" contype="0" conaffinity="0"/></body>
+    <body name="bullet_35" pos="0 0 -10" mocap="true"><geom type="sphere" size="0.0085" rgba="1 0.85 0.05 1" contype="0" conaffinity="0"/></body>
+    <body name="bullet_36" pos="0 0 -10" mocap="true"><geom type="sphere" size="0.0085" rgba="1 0.85 0.05 1" contype="0" conaffinity="0"/></body>
+    <body name="bullet_37" pos="0 0 -10" mocap="true"><geom type="sphere" size="0.0085" rgba="1 0.85 0.05 1" contype="0" conaffinity="0"/></body>
+    <body name="bullet_38" pos="0 0 -10" mocap="true"><geom type="sphere" size="0.0085" rgba="1 0.85 0.05 1" contype="0" conaffinity="0"/></body>
+    <body name="bullet_39" pos="0 0 -10" mocap="true"><geom type="sphere" size="0.0085" rgba="1 0.85 0.05 1" contype="0" conaffinity="0"/></body>
+    <body name="bullet_40" pos="0 0 -10" mocap="true"><geom type="sphere" size="0.0085" rgba="1 0.85 0.05 1" contype="0" conaffinity="0"/></body>
+    <body name="bullet_41" pos="0 0 -10" mocap="true"><geom type="sphere" size="0.0085" rgba="1 0.85 0.05 1" contype="0" conaffinity="0"/></body>
+    <body name="bullet_42" pos="0 0 -10" mocap="true"><geom type="sphere" size="0.0085" rgba="1 0.85 0.05 1" contype="0" conaffinity="0"/></body>
+    <body name="bullet_43" pos="0 0 -10" mocap="true"><geom type="sphere" size="0.0085" rgba="1 0.85 0.05 1" contype="0" conaffinity="0"/></body>
+    <body name="bullet_44" pos="0 0 -10" mocap="true"><geom type="sphere" size="0.0085" rgba="1 0.85 0.05 1" contype="0" conaffinity="0"/></body>
+    <body name="bullet_45" pos="0 0 -10" mocap="true"><geom type="sphere" size="0.0085" rgba="1 0.85 0.05 1" contype="0" conaffinity="0"/></body>
+    <body name="bullet_46" pos="0 0 -10" mocap="true"><geom type="sphere" size="0.0085" rgba="1 0.85 0.05 1" contype="0" conaffinity="0"/></body>
+    <body name="bullet_47" pos="0 0 -10" mocap="true"><geom type="sphere" size="0.0085" rgba="1 0.85 0.05 1" contype="0" conaffinity="0"/></body>
+    <body name="bullet_48" pos="0 0 -10" mocap="true"><geom type="sphere" size="0.0085" rgba="1 0.85 0.05 1" contype="0" conaffinity="0"/></body>
+    <body name="bullet_49" pos="0 0 -10" mocap="true"><geom type="sphere" size="0.0085" rgba="1 0.85 0.05 1" contype="0" conaffinity="0"/></body>
+    <body name="bullet_50" pos="0 0 -10" mocap="true"><geom type="sphere" size="0.0085" rgba="1 0.85 0.05 1" contype="0" conaffinity="0"/></body>
+    <body name="bullet_51" pos="0 0 -10" mocap="true"><geom type="sphere" size="0.0085" rgba="1 0.85 0.05 1" contype="0" conaffinity="0"/></body>
+    <body name="bullet_52" pos="0 0 -10" mocap="true"><geom type="sphere" size="0.0085" rgba="1 0.85 0.05 1" contype="0" conaffinity="0"/></body>
+    <body name="bullet_53" pos="0 0 -10" mocap="true"><geom type="sphere" size="0.0085" rgba="1 0.85 0.05 1" contype="0" conaffinity="0"/></body>
+    <body name="bullet_54" pos="0 0 -10" mocap="true"><geom type="sphere" size="0.0085" rgba="1 0.85 0.05 1" contype="0" conaffinity="0"/></body>
+    <body name="bullet_55" pos="0 0 -10" mocap="true"><geom type="sphere" size="0.0085" rgba="1 0.85 0.05 1" contype="0" conaffinity="0"/></body>
+    <body name="bullet_56" pos="0 0 -10" mocap="true"><geom type="sphere" size="0.0085" rgba="1 0.85 0.05 1" contype="0" conaffinity="0"/></body>
+    <body name="bullet_57" pos="0 0 -10" mocap="true"><geom type="sphere" size="0.0085" rgba="1 0.85 0.05 1" contype="0" conaffinity="0"/></body>
+    <body name="bullet_58" pos="0 0 -10" mocap="true"><geom type="sphere" size="0.0085" rgba="1 0.85 0.05 1" contype="0" conaffinity="0"/></body>
+    <body name="bullet_59" pos="0 0 -10" mocap="true"><geom type="sphere" size="0.0085" rgba="1 0.85 0.05 1" contype="0" conaffinity="0"/></body>
+    <body name="bullet_60" pos="0 0 -10" mocap="true"><geom type="sphere" size="0.0085" rgba="1 0.85 0.05 1" contype="0" conaffinity="0"/></body>
+    <body name="bullet_61" pos="0 0 -10" mocap="true"><geom type="sphere" size="0.0085" rgba="1 0.85 0.05 1" contype="0" conaffinity="0"/></body>
+    <body name="bullet_62" pos="0 0 -10" mocap="true"><geom type="sphere" size="0.0085" rgba="1 0.85 0.05 1" contype="0" conaffinity="0"/></body>
+    <body name="bullet_63" pos="0 0 -10" mocap="true"><geom type="sphere" size="0.0085" rgba="1 0.85 0.05 1" contype="0" conaffinity="0"/></body>
+    <body name="bullet_64" pos="0 0 -10" mocap="true"><geom type="sphere" size="0.0085" rgba="1 0.85 0.05 1" contype="0" conaffinity="0"/></body>
+    <body name="bullet_65" pos="0 0 -10" mocap="true"><geom type="sphere" size="0.0085" rgba="1 0.85 0.05 1" contype="0" conaffinity="0"/></body>
+    <body name="bullet_66" pos="0 0 -10" mocap="true"><geom type="sphere" size="0.0085" rgba="1 0.85 0.05 1" contype="0" conaffinity="0"/></body>
+    <body name="bullet_67" pos="0 0 -10" mocap="true"><geom type="sphere" size="0.0085" rgba="1 0.85 0.05 1" contype="0" conaffinity="0"/></body>
+    <body name="bullet_68" pos="0 0 -10" mocap="true"><geom type="sphere" size="0.0085" rgba="1 0.85 0.05 1" contype="0" conaffinity="0"/></body>
+    <body name="bullet_69" pos="0 0 -10" mocap="true"><geom type="sphere" size="0.0085" rgba="1 0.85 0.05 1" contype="0" conaffinity="0"/></body>
+    <body name="bullet_70" pos="0 0 -10" mocap="true"><geom type="sphere" size="0.0085" rgba="1 0.85 0.05 1" contype="0" conaffinity="0"/></body>
+    <body name="bullet_71" pos="0 0 -10" mocap="true"><geom type="sphere" size="0.0085" rgba="1 0.85 0.05 1" contype="0" conaffinity="0"/></body>
+    <body name="bullet_72" pos="0 0 -10" mocap="true"><geom type="sphere" size="0.0085" rgba="1 0.85 0.05 1" contype="0" conaffinity="0"/></body>
+    <body name="bullet_73" pos="0 0 -10" mocap="true"><geom type="sphere" size="0.0085" rgba="1 0.85 0.05 1" contype="0" conaffinity="0"/></body>
+    <body name="bullet_74" pos="0 0 -10" mocap="true"><geom type="sphere" size="0.0085" rgba="1 0.85 0.05 1" contype="0" conaffinity="0"/></body>
+    <body name="bullet_75" pos="0 0 -10" mocap="true"><geom type="sphere" size="0.0085" rgba="1 0.85 0.05 1" contype="0" conaffinity="0"/></body>
+    <body name="bullet_76" pos="0 0 -10" mocap="true"><geom type="sphere" size="0.0085" rgba="1 0.85 0.05 1" contype="0" conaffinity="0"/></body>
+    <body name="bullet_77" pos="0 0 -10" mocap="true"><geom type="sphere" size="0.0085" rgba="1 0.85 0.05 1" contype="0" conaffinity="0"/></body>
+    <body name="bullet_78" pos="0 0 -10" mocap="true"><geom type="sphere" size="0.0085" rgba="1 0.85 0.05 1" contype="0" conaffinity="0"/></body>
+    <body name="bullet_79" pos="0 0 -10" mocap="true"><geom type="sphere" size="0.0085" rgba="1 0.85 0.05 1" contype="0" conaffinity="0"/></body>
+    <body name="bullet_80" pos="0 0 -10" mocap="true"><geom type="sphere" size="0.0085" rgba="1 0.85 0.05 1" contype="0" conaffinity="0"/></body>
+    <body name="bullet_81" pos="0 0 -10" mocap="true"><geom type="sphere" size="0.0085" rgba="1 0.85 0.05 1" contype="0" conaffinity="0"/></body>
+    <body name="bullet_82" pos="0 0 -10" mocap="true"><geom type="sphere" size="0.0085" rgba="1 0.85 0.05 1" contype="0" conaffinity="0"/></body>
+    <body name="bullet_83" pos="0 0 -10" mocap="true"><geom type="sphere" size="0.0085" rgba="1 0.85 0.05 1" contype="0" conaffinity="0"/></body>
+    <body name="bullet_84" pos="0 0 -10" mocap="true"><geom type="sphere" size="0.0085" rgba="1 0.85 0.05 1" contype="0" conaffinity="0"/></body>
+    <body name="bullet_85" pos="0 0 -10" mocap="true"><geom type="sphere" size="0.0085" rgba="1 0.85 0.05 1" contype="0" conaffinity="0"/></body>
+    <body name="bullet_86" pos="0 0 -10" mocap="true"><geom type="sphere" size="0.0085" rgba="1 0.85 0.05 1" contype="0" conaffinity="0"/></body>
+    <body name="bullet_87" pos="0 0 -10" mocap="true"><geom type="sphere" size="0.0085" rgba="1 0.85 0.05 1" contype="0" conaffinity="0"/></body>
+    <body name="bullet_88" pos="0 0 -10" mocap="true"><geom type="sphere" size="0.0085" rgba="1 0.85 0.05 1" contype="0" conaffinity="0"/></body>
+    <body name="bullet_89" pos="0 0 -10" mocap="true"><geom type="sphere" size="0.0085" rgba="1 0.85 0.05 1" contype="0" conaffinity="0"/></body>
+    <body name="bullet_90" pos="0 0 -10" mocap="true"><geom type="sphere" size="0.0085" rgba="1 0.85 0.05 1" contype="0" conaffinity="0"/></body>
+    <body name="bullet_91" pos="0 0 -10" mocap="true"><geom type="sphere" size="0.0085" rgba="1 0.85 0.05 1" contype="0" conaffinity="0"/></body>
+    <body name="bullet_92" pos="0 0 -10" mocap="true"><geom type="sphere" size="0.0085" rgba="1 0.85 0.05 1" contype="0" conaffinity="0"/></body>
+    <body name="bullet_93" pos="0 0 -10" mocap="true"><geom type="sphere" size="0.0085" rgba="1 0.85 0.05 1" contype="0" conaffinity="0"/></body>
+    <body name="bullet_94" pos="0 0 -10" mocap="true"><geom type="sphere" size="0.0085" rgba="1 0.85 0.05 1" contype="0" conaffinity="0"/></body>
+    <body name="bullet_95" pos="0 0 -10" mocap="true"><geom type="sphere" size="0.0085" rgba="1 0.85 0.05 1" contype="0" conaffinity="0"/></body>
+    <body name="bullet_96" pos="0 0 -10" mocap="true"><geom type="sphere" size="0.0085" rgba="1 0.85 0.05 1" contype="0" conaffinity="0"/></body>
+    <body name="bullet_97" pos="0 0 -10" mocap="true"><geom type="sphere" size="0.0085" rgba="1 0.85 0.05 1" contype="0" conaffinity="0"/></body>
+    <body name="bullet_98" pos="0 0 -10" mocap="true"><geom type="sphere" size="0.0085" rgba="1 0.85 0.05 1" contype="0" conaffinity="0"/></body>
+    <body name="bullet_99" pos="0 0 -10" mocap="true"><geom type="sphere" size="0.0085" rgba="1 0.85 0.05 1" contype="0" conaffinity="0"/></body>
   </worldbody>
 
   <actuator>
