@@ -143,9 +143,9 @@ int main()
 
     const double gimbal_bottom_z = d->xpos[3 * gimbal_base_body + 2] - 0.13;
     const double target_top_z = d->xpos[3 * target_body + 2] + m->geom_size[3 * target_geom + 2];
-    const bool target_is_four_times_smaller =
-      std::abs(m->geom_size[3 * target_geom + 1] - 0.055) < 1e-9 &&
-      std::abs(m->geom_size[3 * target_geom + 2] - 0.055) < 1e-9;
+    const bool target_is_twice_previous_size =
+      std::abs(m->geom_size[3 * target_geom + 1] - 0.11) < 1e-9 &&
+      std::abs(m->geom_size[3 * target_geom + 2] - 0.11) < 1e-9;
     const bool gimbal_bottom_just_above_target =
       gimbal_bottom_z > target_top_z && (gimbal_bottom_z - target_top_z) < 0.08;
     const double initial_target_y = d->xpos[3 * target_body + 1];
@@ -289,8 +289,8 @@ int main()
         std::printf("FAIL gimbal POV camera is not mounted higher and angled down\n");
         return 1;
     }
-    if (!target_is_four_times_smaller) {
-        std::printf("FAIL target square is not four times smaller\n");
+    if (!target_is_twice_previous_size) {
+        std::printf("FAIL target square is not twice the previous size\n");
         return 1;
     }
     if (!gimbal_bottom_just_above_target) {

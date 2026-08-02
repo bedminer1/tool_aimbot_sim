@@ -30,7 +30,7 @@
     <geom name="floor" type="plane" size="4 3 0.05" material="grid"/>
 
     <!-- Gimbal origin. Barrel/camera look along local +X. -->
-    <body name="gimbal_base" pos="0 0 0.65">
+    <body name="gimbal_base" pos="0 0 0.68">
       <geom name="base_box" type="box" size="0.18 0.16 0.05" pos="0 0 -0.08" material="gimbal_dark" mass="2.0"/>
       <geom name="yaw_ring" type="cylinder" size="0.13 0.035" material="gimbal_dark" mass="0.5"/>
 
@@ -53,7 +53,7 @@
 
     <!-- Moved by main.cpp. Square target travels left/right in front of gimbal. -->
     <body name="target" pos="3 0 0.43" mocap="true">
-      <geom name="target_square" type="box" size="0.0075 0.055 0.055" material="target_red" contype="0" conaffinity="0"/>
+      <geom name="target_square" type="box" size="0.015 0.11 0.11" material="target_red" contype="0" conaffinity="0"/>
       <site name="target_site" pos="0 0 0" size="0.025" rgba="1 0 0 0.7"/>
     </body>
   </worldbody>
