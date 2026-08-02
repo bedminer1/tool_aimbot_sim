@@ -62,7 +62,7 @@ Scoring:
 
 - each run has 10 shots
 - left-click fires one shot from the green laser ray
-- bullets travel at 24 km/h on a ballistic trajectory
+- bullets travel at 24.8 m/s on a ballistic trajectory
 - score increments when the bullet intersects the moving target plate
 - timer starts on the first shot and stops on the tenth shot
 - `R` resets the counter and score
