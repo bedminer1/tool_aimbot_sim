@@ -1,0 +1,66 @@
+<mujoco model="yaw_gimbal_target">
+  <compiler angle="radian" inertiafromgeom="true"/>
+
+  <option timestep="0.002" gravity="0 0 -9.81" iterations="20">
+    <flag contact="enable"/>
+  </option>
+
+  <visual>
+    <global azimuth="135" elevation="-20"/>
+    <map znear="0.01" zfar="20"/>
+  </visual>
+
+  <asset>
+    <texture name="grid" type="2d" builtin="checker" width="512" height="512"
+             rgb1="0.18 0.18 0.18" rgb2="0.24 0.24 0.24"/>
+    <material name="grid" texture="grid" texrepeat="6 6" reflectance="0.1"/>
+    <material name="gimbal_dark" rgba="0.12 0.13 0.16 1"/>
+    <material name="gimbal_blue" rgba="0.12 0.28 0.85 1"/>
+    <material name="target_red" rgba="1.0 0.08 0.05 1"/>
+    <material name="sight_green" rgba="0.0 1.0 0.15 1"/>
+  </asset>
+
+  <default>
+    <geom friction="1.0 0.005 0.005" solref="0.02 1" solimp="0.9 0.95 0.001"/>
+    <joint damping="0.02" armature="0.002" limited="true"/>
+  </default>
+
+  <worldbody>
+    <light name="key" pos="0 -3 4" dir="0 0 -1" diffuse="0.8 0.8 0.8"/>
+    <light name="fill" pos="-2 2 2" dir="1 -1 -1" diffuse="0.35 0.35 0.35"/>
+    <geom name="floor" type="plane" size="4 3 0.05" material="grid"/>
+
+    <!-- Camera/gimbal origin. Barrel points along local +X. -->
+    <body name="gimbal_base" pos="0 0 0.35">
+      <geom name="base_box" type="box" size="0.18 0.16 0.05" pos="0 0 -0.08" material="gimbal_dark" mass="2.0"/>
+      <geom name="yaw_ring" type="cylinder" size="0.13 0.035" material="gimbal_dark" mass="0.5"/>
+
+      <body name="yaw_link" pos="0 0 0.04">
+        <joint name="yaw" type="hinge" axis="0 0 1" range="-2.8 2.8" damping="0.02" armature="0.002"/>
+        <geom name="yaw_hub" type="cylinder" size="0.07 0.055" material="gimbal_blue" mass="0.6"/>
+        <geom name="barrel" type="box" size="0.38 0.025 0.025" pos="0.32 0 0" material="gimbal_dark" mass="0.35"/>
+        <geom name="muzzle" type="cylinder" size="0.032 0.035" pos="0.72 0 0" euler="0 1.57079632679 0" rgba="0.6 0.6 0.08 1" mass="0.05"/>
+        <site name="muzzle_site" pos="0.76 0 0" size="0.02" rgba="1 1 0 1"/>
+        <site name="aim_ray" pos="1.5 0 0" size="0.01" rgba="0 1 0 0.45"/>
+      </body>
+    </body>
+
+    <!-- Moved by main.cpp. Square target travels left/right in front of gimbal. -->
+    <body name="target" pos="3 0 0.43" mocap="true">
+      <geom name="target_square" type="box" size="0.03 0.22 0.22" material="target_red" contype="0" conaffinity="0"/>
+      <site name="target_site" pos="0 0 0" size="0.025" rgba="1 0 0 0.7"/>
+    </body>
+  </worldbody>
+
+  <actuator>
+    <velocity name="yaw_motor" joint="yaw" kv="45" ctrlrange="-4 4" ctrllimited="true"/>
+  </actuator>
+
+  <sensor>
+    <jointpos name="yaw_enc" joint="yaw"/>
+    <jointvel name="yaw_vel" joint="yaw"/>
+    <framepos name="muzzle_pos" objtype="site" objname="muzzle_site"/>
+    <framexaxis name="muzzle_xaxis" objtype="site" objname="muzzle_site"/>
+    <framepos name="target_pos" objtype="site" objname="target_site"/>
+  </sensor>
+</mujoco>
