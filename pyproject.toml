@@ -1,0 +1,11 @@
+[project]
+name = "tool-aimbot-sim"
+version = "0.1.0"
+requires-python = ">=3.9"
+dependencies = [
+    "stable-baselines3>=2.0",
+    "onnx>=1.14",
+    "onnxruntime>=1.14",
+    "gymnasium>=1.0",
+    "numpy>=1.24",
+]
