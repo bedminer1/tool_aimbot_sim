@@ -244,6 +244,8 @@ int main(int argc, char** argv)
     int shots_fired = 0;
     int score = 0;
     bool last_shot_hit = false;
+    double first_shot_time = -1.0;
+    double last_shot_time = -1.0;
     hw::Command command{};
     reset_command_to_current_gimbal(command, d, yaw_qpos_addr, pitch_qpos_addr);
     glfwSetInputMode(w, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
@@ -261,6 +263,8 @@ int main(int argc, char** argv)
             shots_fired = 0;
             score = 0;
             last_shot_hit = false;
+            first_shot_time = -1.0;
+            last_shot_time = -1.0;
         }
         reset_prev = reset_now;
 
@@ -357,7 +361,9 @@ int main(int argc, char** argv)
 
         const bool shot_now = glfwGetMouseButton(w, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
         if (cam.type == mjCAMERA_FIXED && shot_now && !shot_prev && shots_fired < 10) {
+            if (shots_fired == 0) first_shot_time = d->time;
             ++shots_fired;
+            if (shots_fired == 10) last_shot_time = d->time;
             last_shot_hit = ray_hits_target_box(m, d, muzzle_site, target_body, target_geom);
             if (last_shot_hit) ++score;
         }
@@ -383,17 +389,21 @@ int main(int argc, char** argv)
         mjv_updateScene(m, d, &opt, nullptr, &cam, mjCAT_ALL, &scn);
         mjr_render(vp, &scn, &con);
 
-        char left[1200];
+        const double shot_elapsed =
+          (first_shot_time < 0.0) ? 0.0
+                                  : ((shots_fired >= 10 ? last_shot_time : d->time) - first_shot_time);
+
+        char left[1300];
         std::snprintf(
           left,
           sizeof(left),
           "Mouse:aim F:camera POV/free R:reset Esc:quit\n"
-          "shots %d/10 score %d last=%s\n"
+          "shots %d/10 score %d last=%s time %.2fs\n"
           "input target=(%.2f, %.2f, %.2f) target_yaw=%+.3f target_pitch=%+.3f\n"
           "error yaw=%+.3f pitch=%+.3f\n"
           "Command{yaw=%+.3f yaw_vel=%+.3f pitch=%+.3f pitch_vel=%+.3f}\n"
           "status yaw=%+.3f yaw_vel=%+.3f pitch=%+.3f pitch_vel=%+.3f ctrl=(%+.2f,%+.2f)",
-          shots_fired, score, last_shot_hit ? "HIT" : "MISS",
+          shots_fired, score, last_shot_hit ? "HIT" : "MISS", shot_elapsed,
           input.target_x, input.target_y, input.target_z, input.target_yaw, input.target_pitch,
           input.yaw_error, input.pitch_error, command.yaw, command.yaw_vel, command.pitch,
           command.pitch_vel, status.yaw, status.yaw_vel, status.pitch, status.pitch_vel,

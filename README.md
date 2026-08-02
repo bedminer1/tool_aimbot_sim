@@ -61,6 +61,7 @@ Scoring:
 - each run has 10 shots
 - left-click fires one shot from the green laser ray
 - score increments if the ray intersects the target at click time
+- timer starts on the first shot and stops on the tenth shot
 - `R` resets the counter and score
 
 ## Aimbot I/O bridge
