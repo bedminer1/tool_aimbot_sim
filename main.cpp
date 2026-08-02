@@ -100,13 +100,13 @@ double dot(const mjtNum* axis, const Vec3& v)
 bool ray_hits_target_box(const mjModel* m, const mjData* d, int muzzle_site, int target_body, int target_geom)
 {
     const mjtNum* origin = d->site_xpos + 3 * muzzle_site;
-    const mjtNum* dir = d->site_xmat + 9 * muzzle_site;  // local +X / green laser direction
+    const mjtNum* site_xmat = d->site_xmat + 9 * muzzle_site;
+    const Vec3 dir_world{site_xmat[0], site_xmat[3], site_xmat[6]};  // local +X / green laser direction
     const mjtNum* body_pos = d->xpos + 3 * target_body;
     const mjtNum* body_xmat = d->xmat + 9 * target_body;
     const mjtNum* half = m->geom_size + 3 * target_geom;
 
     const Vec3 delta{origin[0] - body_pos[0], origin[1] - body_pos[1], origin[2] - body_pos[2]};
-    const Vec3 dir_world{dir[0], dir[1], dir[2]};
     const double origin_vals[3] = {
       dot(body_xmat + 0, delta),
       dot(body_xmat + 3, delta),

@@ -248,15 +248,34 @@ int main()
     const bool shot_hit = ray_hits_box(m, d, hit_origin, hit_dir, target_body, target_geom);
     const bool shot_miss = ray_hits_box(m, d, miss_origin, hit_dir, target_body, target_geom);
 
+    d->qpos[yaw_qpos] = 0.0;
+    d->qpos[pitch_qpos] = 0.0;
+    mj_forward(m, d);
+    const mjtNum* aim_muzzle = d->site_xpos + 3 * muzzle_site;
+    const mjtNum* aim_target = d->xpos + 3 * target_body;
+    const double aim_dx = aim_target[0] - aim_muzzle[0];
+    const double aim_dy = aim_target[1] - aim_muzzle[1];
+    const double aim_dz = aim_target[2] - aim_muzzle[2];
+    d->qpos[yaw_qpos] = std::atan2(aim_dy, aim_dx);
+    d->qpos[pitch_qpos] = std::atan2(aim_dz, std::hypot(aim_dx, aim_dy));
+    mj_forward(m, d);
+    const mjtNum* muzzle_xmat = d->site_xmat + 9 * muzzle_site;
+    const mjtNum* muzzle_pos = d->site_xpos + 3 * muzzle_site;
+    const Vec3 muzzle_hit_origin{muzzle_pos[0], muzzle_pos[1], muzzle_pos[2]};
+    const Vec3 muzzle_hit_dir{muzzle_xmat[0], muzzle_xmat[3], muzzle_xmat[6]};
+    const bool muzzle_center_hit =
+      ray_hits_box(m, d, muzzle_hit_origin, muzzle_hit_dir, target_body, target_geom);
+
     std::printf(
       "yaw=%.3f yaw_vel=%.3f pitch=%.3f pitch_vel=%.3f yaw_coast=%.3f pitch_coast=%.3f "
       "target_yaw=%.3f target_pitch=%.3f yaw_error=%.3f pitch_error=%.3f camera_alignment=%.3f "
       "camera_z=%.3f aim_z=%.3f view_z=%.3f target_travel=%.3f target_xdelta=%.3f target_xdot=%.3f "
-      "shot_hit=%d shot_miss=%d\n",
+      "shot_hit=%d shot_miss=%d muzzle_center_hit=%d\n",
       yaw_after_press, yaw_vel_after_press, pitch_after_press, pitch_vel_after_press, yaw_coast,
       pitch_coast, target_yaw, target_pitch, yaw_error, pitch_error, camera_alignment,
       initial_camera_z, initial_aim_ray_z, initial_view_z, target_travel_yz, target_topdown_x_delta,
-      initial_target_xaxis_dot_outward, shot_hit ? 1 : 0, shot_miss ? 1 : 0);
+      initial_target_xaxis_dot_outward, shot_hit ? 1 : 0, shot_miss ? 1 : 0,
+      muzzle_center_hit ? 1 : 0);
 
     mj_deleteData(d);
     mj_deleteModel(m);
@@ -302,7 +321,7 @@ int main()
         std::printf("FAIL target does not orbit/faces the wrong way\n");
         return 1;
     }
-    if (!shot_hit || shot_miss) {
+    if (!shot_hit || shot_miss || !muzzle_center_hit) {
         std::printf("FAIL shot hit/miss classifier is wrong\n");
         return 1;
     }
