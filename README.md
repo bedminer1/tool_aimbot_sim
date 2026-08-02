@@ -1,14 +1,15 @@
 # tool_aimbot_sim
 
-MuJoCo prototype for a RoboMaster-style yaw gimbal and moving target.
+MuJoCo prototype for a RoboMaster-style yaw/pitch gimbal and moving target.
 
 Current scope is intentionally small:
 
-- yaw-only gimbal
+- yaw/pitch gimbal
 - red square target moving left/right in front of the gimbal
-- manual A/D yaw control
+- manual A/D yaw control and W/S pitch control
+- starts in a fixed gimbal POV camera looking straight at the target
 - aimbot-style `hw::Command` output fields for bridging to `27_aimbot_software`
-- on-screen telemetry for target yaw, yaw error, command yaw/yaw velocity, and simulated gimbal status
+- on-screen telemetry for target yaw/pitch, yaw/pitch error, command velocities, and simulated gimbal status
 
 This is the first sim scaffold for the Griffin Labs RL-from-scratch challenge. It is not the RL environment yet.
 
@@ -38,16 +39,19 @@ Optional explicit XML path:
 
 - `A`: yaw left
 - `D`: yaw right
+- `W`: pitch up
+- `S`: pitch down
+- `F`: toggle gimbal POV / free camera
 - `R`: reset
 - `Esc`: quit
-- mouse drag: rotate camera
-- shift + drag: zoom
+- mouse drag: rotate free camera
+- shift + drag: zoom free camera
 
 Manual control is kinematic velocity control for responsiveness:
 
-- while A/D is held, `command.yaw_vel` is nonzero
-- when released, `command.yaw_vel` becomes zero immediately
-- `command.yaw` resets to current yaw on release so the sim does not chase a stale setpoint
+- while A/D or W/S is held, `command.yaw_vel` / `command.pitch_vel` is nonzero
+- when released, the corresponding velocity becomes zero immediately
+- `command.yaw` / `command.pitch` reset to current gimbal angles on release so the sim does not chase stale setpoints
 
 Later baseline/RL work can swap this for actuator dynamics behind a mode flag.
 
@@ -61,7 +65,8 @@ command.control = true;
 command.found = true;
 command.yaw = ...;
 command.yaw_vel = ...;
-command.pitch = 0.0;
+command.pitch = ...;
+command.pitch_vel = ...;
 ```
 
 CMake prefers the real sibling checkout:
@@ -76,14 +81,13 @@ The fallback is a minimal mirror of the command struct so this repo still builds
 
 ## Files
 
-- `gimbal.xml`: MuJoCo yaw gimbal, target body, sensors, yaw actuator
-- `main.cpp`: GLFW viewer, A/D input, moving target, aimbot-style command/status overlay
-- `test_headless.cpp`: non-visual check for XML names, target motion, snappy A/D yaw, and brake-on-release
+- `gimbal.xml`: MuJoCo yaw/pitch gimbal, target body, gimbal POV camera, sensors, yaw/pitch actuators
+- `main.cpp`: GLFW viewer, A/D/W/S input, moving target, aimbot-style command/status overlay
+- `test_headless.cpp`: non-visual check for XML names, target motion, snappy yaw/pitch control, and brake-on-release
 - `third_party/aimbot_io/io/command.hpp`: standalone fallback command struct
 
 ## Current limitations
 
-- yaw-only, no pitch
 - no projectile model
 - no vision detector or tracker loop yet
 - manual control uses kinematic velocity, not realistic torque dynamics
