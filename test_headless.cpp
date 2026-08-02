@@ -17,6 +17,11 @@ constexpr double kTargetOrbitRadius = 0.04;
 constexpr double kTargetOrbitPeriodS = 1.2;
 constexpr double kManualYawRate = 3.2;
 constexpr double kManualPitchRate = 2.4;
+constexpr double kMaxYawVel = 4.0;
+constexpr double kMaxPitchVel = 4.0;
+constexpr double kAutoYawKp = 9.0;
+constexpr double kAutoPitchKp = 9.0;
+constexpr double kAutoShotCooldownS = 0.12;
 constexpr double kPitchMin = -0.8;
 constexpr double kPitchMax = 0.8;
 
@@ -266,16 +271,62 @@ int main()
     const bool muzzle_center_hit =
       ray_hits_box(m, d, muzzle_hit_origin, muzzle_hit_dir, target_body, target_geom);
 
+    mj_resetData(m, d);
+    int auto_shots = 0;
+    int auto_score = 0;
+    double last_auto_shot_time = -1.0;
+    double auto_first_shot_time = -1.0;
+    double auto_last_shot_time = -1.0;
+    for (int i = 0; i < 3000 && auto_shots < 10; ++i) {
+        set_orbiting_target_pose(d, target_mocap);
+        mj_forward(m, d);
+
+        const mjtNum* auto_muzzle = d->site_xpos + 3 * muzzle_site;
+        const mjtNum* auto_target = d->site_xpos + 3 * target_site;
+        const double adx = auto_target[0] - auto_muzzle[0];
+        const double ady = auto_target[1] - auto_muzzle[1];
+        const double adz = auto_target[2] - auto_muzzle[2];
+        const double target_yaw_cmd = std::atan2(ady, adx);
+        const double target_pitch_cmd = std::atan2(adz, std::hypot(adx, ady));
+        const double yaw_error_cmd = wrap_pi(target_yaw_cmd - d->qpos[yaw_qpos]);
+        const double pitch_error_cmd = target_pitch_cmd - d->qpos[pitch_qpos];
+        const double yaw_vel_cmd = std::clamp(kAutoYawKp * yaw_error_cmd, -kMaxYawVel, kMaxYawVel);
+        const double pitch_vel_cmd = std::clamp(kAutoPitchKp * pitch_error_cmd, -kMaxPitchVel, kMaxPitchVel);
+
+        d->qpos[yaw_qpos] = std::clamp(
+          wrap_pi(d->qpos[yaw_qpos] + yaw_vel_cmd * m->opt.timestep), -2.8, 2.8);
+        d->qpos[pitch_qpos] = std::clamp(
+          d->qpos[pitch_qpos] + pitch_vel_cmd * m->opt.timestep, kPitchMin, kPitchMax);
+        d->qvel[yaw_qvel] = yaw_vel_cmd;
+        d->qvel[pitch_qvel] = pitch_vel_cmd;
+        d->time += m->opt.timestep;
+        mj_forward(m, d);
+
+        const mjtNum* auto_muzzle_xmat = d->site_xmat + 9 * muzzle_site;
+        const mjtNum* auto_muzzle_pos = d->site_xpos + 3 * muzzle_site;
+        const Vec3 auto_origin{auto_muzzle_pos[0], auto_muzzle_pos[1], auto_muzzle_pos[2]};
+        const Vec3 auto_dir{auto_muzzle_xmat[0], auto_muzzle_xmat[3], auto_muzzle_xmat[6]};
+        const bool auto_hit = ray_hits_box(m, d, auto_origin, auto_dir, target_body, target_geom);
+        if (auto_hit && (last_auto_shot_time < 0.0 || d->time - last_auto_shot_time >= kAutoShotCooldownS)) {
+            if (auto_shots == 0) auto_first_shot_time = d->time;
+            ++auto_shots;
+            ++auto_score;
+            if (auto_shots == 10) auto_last_shot_time = d->time;
+            last_auto_shot_time = d->time;
+        }
+    }
+    const double auto_elapsed = auto_last_shot_time - auto_first_shot_time;
+
     std::printf(
       "yaw=%.3f yaw_vel=%.3f pitch=%.3f pitch_vel=%.3f yaw_coast=%.3f pitch_coast=%.3f "
       "target_yaw=%.3f target_pitch=%.3f yaw_error=%.3f pitch_error=%.3f camera_alignment=%.3f "
       "camera_z=%.3f aim_z=%.3f view_z=%.3f target_travel=%.3f target_xdelta=%.3f target_xdot=%.3f "
-      "shot_hit=%d shot_miss=%d muzzle_center_hit=%d\n",
+      "shot_hit=%d shot_miss=%d muzzle_center_hit=%d auto_score=%d auto_elapsed=%.3f\n",
       yaw_after_press, yaw_vel_after_press, pitch_after_press, pitch_vel_after_press, yaw_coast,
       pitch_coast, target_yaw, target_pitch, yaw_error, pitch_error, camera_alignment,
       initial_camera_z, initial_aim_ray_z, initial_view_z, target_travel_yz, target_topdown_x_delta,
       initial_target_xaxis_dot_outward, shot_hit ? 1 : 0, shot_miss ? 1 : 0,
-      muzzle_center_hit ? 1 : 0);
+      muzzle_center_hit ? 1 : 0, auto_score, auto_elapsed);
 
     mj_deleteData(d);
     mj_deleteModel(m);
@@ -323,6 +374,10 @@ int main()
     }
     if (!shot_hit || shot_miss || !muzzle_center_hit) {
         std::printf("FAIL shot hit/miss classifier is wrong\n");
+        return 1;
+    }
+    if (auto_shots != 10 || auto_score != 10 || auto_elapsed <= 0.0) {
+        std::printf("FAIL aimbot did not complete scored 10-shot run\n");
         return 1;
     }
 

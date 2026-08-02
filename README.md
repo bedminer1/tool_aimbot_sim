@@ -10,6 +10,7 @@ Current scope is intentionally small:
 - gimbal base is raised so its bottom sits just above the top of the target
 - mouse-controlled yaw/pitch aiming from the gimbal POV
 - left-click shooting with 10 scored shots per run
+- `T` toggles a simple aimbot that emits the same `hw::Command` fields and fires automatically
 - starts in a fixed gimbal POV camera mounted slightly above the barrel and angled down so the sight dot is visible
 - aimbot-style `hw::Command` output fields for bridging to `27_aimbot_software`
 - on-screen telemetry for target yaw/pitch, yaw/pitch error, command velocities, and simulated gimbal status
@@ -42,6 +43,7 @@ Optional explicit XML path:
 
 - move mouse: aim yaw/pitch
 - left click: fire one shot
+- `T`: toggle aimbot mode and reset score/timer
 - `F`: toggle gimbal POV / free camera
 - `R`: reset
 - `Esc`: quit
@@ -63,6 +65,12 @@ Scoring:
 - score increments if the ray intersects the target at click time
 - timer starts on the first shot and stops on the tenth shot
 - `R` resets the counter and score
+
+Aimbot mode:
+
+- uses the same simulated inputs as the real pipeline: target yaw/pitch error plus gimbal yaw/pitch status
+- outputs `hw::Command{control, found, shoot, yaw, pitch, yaw_vel, pitch_vel, yaw_accel, pitch_accel}`
+- fires automatically when the green laser intersects the target, with a short shot cooldown
 
 ## Aimbot I/O bridge
 

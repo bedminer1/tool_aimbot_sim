@@ -22,6 +22,9 @@ constexpr double kMouseYawSensitivity = 0.0025;    // rad/pixel
 constexpr double kMousePitchSensitivity = 0.0020;  // rad/pixel
 constexpr double kMaxYawVel = 4.0;        // matches yaw_motor ctrlrange
 constexpr double kMaxPitchVel = 4.0;      // matches pitch_motor ctrlrange
+constexpr double kAutoYawKp = 9.0;
+constexpr double kAutoPitchKp = 9.0;
+constexpr double kAutoShotCooldownS = 0.12;
 constexpr double kPitchMin = -0.8;
 constexpr double kPitchMax = 0.8;
 
@@ -154,6 +157,23 @@ void reset_command_to_current_gimbal(
     cmd.pitch = d->qpos[pitch_qpos_addr];
     cmd.yaw_vel = 0.0;
     cmd.pitch_vel = 0.0;
+    cmd.yaw_accel = 0.0;
+    cmd.pitch_accel = 0.0;
+}
+
+hw::Command make_aimbot_command(const AimbotInput& input, const SimGimbalStatus& status)
+{
+    hw::Command cmd;
+    cmd.control = true;
+    cmd.found = true;
+    cmd.shoot = false;
+    cmd.yaw = input.target_yaw;
+    cmd.pitch = std::clamp(input.target_pitch, kPitchMin, kPitchMax);
+    cmd.yaw_vel = std::clamp(kAutoYawKp * input.yaw_error, -kMaxYawVel, kMaxYawVel);
+    cmd.pitch_vel = std::clamp(kAutoPitchKp * input.pitch_error, -kMaxPitchVel, kMaxPitchVel);
+    cmd.yaw_accel = (cmd.yaw_vel - status.yaw_vel) / kRenderDt;
+    cmd.pitch_accel = (cmd.pitch_vel - status.pitch_vel) / kRenderDt;
+    return cmd;
 }
 
 void setup_free_camera(mjvCamera& cam)
@@ -240,12 +260,15 @@ int main(int argc, char** argv)
     bool mouse_initialized = false;
     bool reset_prev = false;
     bool camera_prev = false;
+    bool aimbot_prev = false;
+    bool aimbot_enabled = false;
     bool shot_prev = false;
     int shots_fired = 0;
     int score = 0;
     bool last_shot_hit = false;
     double first_shot_time = -1.0;
     double last_shot_time = -1.0;
+    double last_auto_shot_time = -1.0;
     hw::Command command{};
     reset_command_to_current_gimbal(command, d, yaw_qpos_addr, pitch_qpos_addr);
     glfwSetInputMode(w, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
@@ -259,12 +282,15 @@ int main(int argc, char** argv)
             cam.fixedcamid = gimbal_camera;
             glfwSetInputMode(w, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
             mouse_initialized = false;
+            aimbot_enabled = false;
+            aimbot_prev = false;
             shot_prev = false;
             shots_fired = 0;
             score = 0;
             last_shot_hit = false;
             first_shot_time = -1.0;
             last_shot_time = -1.0;
+            last_auto_shot_time = -1.0;
         }
         reset_prev = reset_now;
 
@@ -282,12 +308,52 @@ int main(int argc, char** argv)
         }
         camera_prev = camera_now;
 
+        const bool aimbot_now = glfwGetKey(w, GLFW_KEY_T) == GLFW_PRESS;
+        if (aimbot_now && !aimbot_prev) {
+            aimbot_enabled = !aimbot_enabled;
+            shots_fired = 0;
+            score = 0;
+            last_shot_hit = false;
+            first_shot_time = -1.0;
+            last_shot_time = -1.0;
+            last_auto_shot_time = -1.0;
+            shot_prev = false;
+            if (aimbot_enabled) {
+                cam.type = mjCAMERA_FIXED;
+                cam.fixedcamid = gimbal_camera;
+                glfwSetInputMode(w, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+                mouse_initialized = false;
+            }
+        }
+        aimbot_prev = aimbot_now;
+
         if (glfwGetKey(w, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
             glfwSetWindowShouldClose(w, GLFW_TRUE);
         }
 
         // Target orbits a laterally moving point. Its local -X face always looks inward.
         set_orbiting_target_pose(d, target_mocap);
+        mj_forward(m, d);
+
+        SimGimbalStatus pre_status{};
+        pre_status.yaw = d->qpos[yaw_qpos_addr];
+        pre_status.yaw_vel = d->qvel[yaw_qvel_addr];
+        pre_status.pitch = d->qpos[pitch_qpos_addr];
+        pre_status.pitch_vel = d->qvel[pitch_qvel_addr];
+
+        const mjtNum* pre_muzzle = d->site_xpos + 3 * muzzle_site;
+        const mjtNum* pre_target = d->site_xpos + 3 * target_site;
+        const double pre_dx = pre_target[0] - pre_muzzle[0];
+        const double pre_dy = pre_target[1] - pre_muzzle[1];
+        const double pre_dz = pre_target[2] - pre_muzzle[2];
+        AimbotInput pre_input{};
+        pre_input.target_x = pre_target[0];
+        pre_input.target_y = pre_target[1];
+        pre_input.target_z = pre_target[2];
+        pre_input.target_yaw = std::atan2(pre_dy, pre_dx);
+        pre_input.target_pitch = std::atan2(pre_dz, std::hypot(pre_dx, pre_dy));
+        pre_input.yaw_error = wrap_pi(pre_input.target_yaw - pre_status.yaw);
+        pre_input.pitch_error = pre_input.target_pitch - pre_status.pitch;
 
         double nx, ny;
         glfwGetCursorPos(w, &nx, &ny);
@@ -304,7 +370,11 @@ int main(int argc, char** argv)
 
         double desired_yaw_vel = 0.0;
         double desired_pitch_vel = 0.0;
-        if (cam.type == mjCAMERA_FIXED) {
+        if (aimbot_enabled) {
+            command = make_aimbot_command(pre_input, pre_status);
+            desired_yaw_vel = command.yaw_vel;
+            desired_pitch_vel = command.pitch_vel;
+        } else if (cam.type == mjCAMERA_FIXED) {
             const double yaw_delta = -dx_mouse * kMouseYawSensitivity;
             const double pitch_delta = -dy_mouse * kMousePitchSensitivity;
             const double next_yaw = wrap_pi(d->qpos[yaw_qpos_addr] + yaw_delta);
@@ -359,17 +429,24 @@ int main(int argc, char** argv)
         input.yaw_error = wrap_pi(input.target_yaw - status.yaw);
         input.pitch_error = input.target_pitch - status.pitch;
 
-        const bool shot_now = glfwGetMouseButton(w, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
-        if (cam.type == mjCAMERA_FIXED && shot_now && !shot_prev && shots_fired < 10) {
+        const bool manual_shot_now = glfwGetMouseButton(w, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
+        const bool manual_shot_edge = cam.type == mjCAMERA_FIXED && manual_shot_now && !shot_prev;
+        const bool auto_ready =
+          aimbot_enabled && shots_fired < 10 && ray_hits_target_box(m, d, muzzle_site, target_body, target_geom) &&
+          (last_auto_shot_time < 0.0 || d->time - last_auto_shot_time >= kAutoShotCooldownS);
+        const bool fire_now = shots_fired < 10 && (manual_shot_edge || auto_ready);
+        command.shoot = fire_now;
+        if (fire_now) {
             if (shots_fired == 0) first_shot_time = d->time;
             ++shots_fired;
             if (shots_fired == 10) last_shot_time = d->time;
             last_shot_hit = ray_hits_target_box(m, d, muzzle_site, target_body, target_geom);
             if (last_shot_hit) ++score;
+            if (auto_ready) last_auto_shot_time = d->time;
         }
-        shot_prev = shot_now;
+        shot_prev = manual_shot_now;
 
-        if (cam.type == mjCAMERA_FIXED) {
+        if (cam.type == mjCAMERA_FIXED && !aimbot_enabled) {
             command.yaw = d->qpos[yaw_qpos_addr];
             command.pitch = d->qpos[pitch_qpos_addr];
         }
@@ -397,15 +474,16 @@ int main(int argc, char** argv)
         std::snprintf(
           left,
           sizeof(left),
-          "Mouse:aim F:camera POV/free R:reset Esc:quit\n"
+          "Mouse:aim T:aimbot %s F:camera POV/free R:reset Esc:quit\n"
           "shots %d/10 score %d last=%s time %.2fs\n"
           "input target=(%.2f, %.2f, %.2f) target_yaw=%+.3f target_pitch=%+.3f\n"
           "error yaw=%+.3f pitch=%+.3f\n"
-          "Command{yaw=%+.3f yaw_vel=%+.3f pitch=%+.3f pitch_vel=%+.3f}\n"
+          "Command{shoot=%d yaw=%+.3f yaw_vel=%+.3f pitch=%+.3f pitch_vel=%+.3f}\n"
           "status yaw=%+.3f yaw_vel=%+.3f pitch=%+.3f pitch_vel=%+.3f ctrl=(%+.2f,%+.2f)",
-          shots_fired, score, last_shot_hit ? "HIT" : "MISS", shot_elapsed,
+          aimbot_enabled ? "ON" : "OFF", shots_fired, score, last_shot_hit ? "HIT" : "MISS",
+          shot_elapsed,
           input.target_x, input.target_y, input.target_z, input.target_yaw, input.target_pitch,
-          input.yaw_error, input.pitch_error, command.yaw, command.yaw_vel, command.pitch,
+          input.yaw_error, input.pitch_error, command.shoot ? 1 : 0, command.yaw, command.yaw_vel, command.pitch,
           command.pitch_vel, status.yaw, status.yaw_vel, status.pitch, status.pitch_vel,
           d->ctrl[yaw_motor], d->ctrl[pitch_motor]);
         mjr_overlay(mjFONT_NORMAL, mjGRID_TOPLEFT, vp, left, nullptr, &con);
