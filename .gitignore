@@ -4,3 +4,5 @@ compile_commands.json
 .DS_Store
 *.dSYM/
 __pycache__/
+*.onnx
+*.zip

@@ -1,5 +1,4 @@
 #include "target_models/target_hard.hpp"
-#include <cmath>
 #include <cstdlib>
 
 static double urand(double lo, double hi) {
@@ -13,52 +12,33 @@ Vec3 TargetHard::random_waypoint() {
     return {r * std::cos(a), r * std::sin(a), z};
 }
 
-Vec3 TargetHard::update(double time) {
-    double dt = time - prev_time_;
-    if (dt <= 0.0) return composite_;
-    double elapsed = time - state_start_;
+TargetState TargetHard::update(double time) {
+    double dt = time - prev_t_;
+    if (dt <= 0.0) return {pos_, 0.0};
+    double elapsed = time - st_start_;
 
-    if (state_ == IDLE) {
-        if (elapsed >= state_duration_) {
-            state_ = MOVING;
-            state_start_ = time;
-            start_pos_ = center_;
-            target_pos_ = random_waypoint();
-            double dist = norm(target_pos_ - start_pos_);
+    if (st_ == IDLE) {
+        if (elapsed >= st_dur_) {
+            st_ = MOVING; st_start_ = time;
+            start_p_ = pos_; targ_p_ = random_waypoint();
+            double dist = norm(targ_p_ - start_p_);
             double speed = urand(kSpeedLo, kSpeedHi);
-            state_duration_ = dist / std::max(0.1, speed);
+            st_dur_ = dist / std::max(0.1, speed);
         }
     } else {
-        double t = elapsed / state_duration_;
-        if (t >= 1.0) {
-            center_ = target_pos_;
-            state_ = IDLE;
-            state_start_ = time;
-            state_duration_ = urand(kPauseLo, kPauseHi);
-        } else {
-            double st = smoothstep(t);
-            center_ = start_pos_ + (target_pos_ - start_pos_) * st;
-        }
+        double t = elapsed / st_dur_;
+        if (t >= 1.0) { pos_ = targ_p_; st_ = IDLE; st_start_ = time;
+            st_dur_ = urand(kPauseLo, kPauseHi); }
+        else pos_ = start_p_ + (targ_p_ - start_p_) * smoothstep(t);
     }
 
-    double phase = 2.0 * kPi * time / kOrbitT;
-    composite_ = {center_.x + kOrbitR * std::sin(phase),
-                  center_.y + kOrbitR * std::cos(phase),
-                  center_.z};
-
-    if (dt > 1e-6) vel_ = (composite_ - prev_composite_) * (1.0 / dt);
-    prev_composite_ = composite_;
-    prev_time_ = time;
-    return composite_;
+    if (dt > 1e-6) vel_ = (pos_ - prev_p_) * (1.0 / dt);
+    prev_p_ = pos_; prev_t_ = time;
+    return {pos_, kSpinRads * time};  // clockwise spin
 }
 
 void TargetHard::reset() {
-    state_ = IDLE;
-    state_start_ = 0.0;
-    state_duration_ = 0.5;
-    center_ = start_pos_ = target_pos_ = {4.0, 0.0, 0.43};
-    composite_ = {4.0, 0.0, 0.43};
-    vel_ = {0.0, 0.0, 0.0};
-    prev_composite_ = composite_;
-    prev_time_ = 0.0;
+    st_ = IDLE; st_start_ = 0.0; st_dur_ = 0.5;
+    pos_ = start_p_ = targ_p_ = {4.0, 0.0, 0.43};
+    vel_ = {}; prev_p_ = pos_; prev_t_ = 0.0;
 }
