@@ -19,6 +19,7 @@ endif()
 
 function(configure_mujoco_target target)
     target_include_directories(${target} PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/include"
         "${MUJOCO_FRAMEWORK_DIR}/Headers"
         "${AIMBOT_INCLUDE_DIR}"
     )
@@ -35,6 +36,21 @@ function(configure_mujoco_target target)
     )
 endfunction()
 
+# ── mujocoaim: CLI sim with swappable targets and aimers ──────────────────
+
+add_executable(mujocoaim
+    src/cli/main.cpp
+    src/aim_models/aim_predictor.cpp
+    src/aim_models/aim_predictor_intercept.cpp
+    src/aim_models/aim_predictor_ppo.cpp
+    src/target_models/target_easy.cpp
+    src/target_models/target_medium.cpp
+    src/target_models/target_hard.cpp
+)
+configure_mujoco_target(mujocoaim)
+
+# ── Legacy sim (keep for reference) ────────────────────────────────────────
+
 add_executable(sim main.cpp src/aim_predictor.cpp src/aim_predictor_intercept.cpp src/aim_predictor_ppo.cpp)
 configure_mujoco_target(sim)
 
@@ -44,15 +60,19 @@ find_path(ONNXRUNTIME_INCLUDE onnxruntime_cxx_api.h
           HINTS /opt/homebrew/include/onnxruntime /usr/local/include/onnxruntime)
 if(ONNXRUNTIME_LIB AND ONNXRUNTIME_INCLUDE)
     message(STATUS "ONNX Runtime found: ${ONNXRUNTIME_LIB}")
+    target_include_directories(mujocoaim PRIVATE "${ONNXRUNTIME_INCLUDE}")
+    target_link_libraries(mujocoaim "${ONNXRUNTIME_LIB}")
     target_include_directories(sim PRIVATE "${ONNXRUNTIME_INCLUDE}")
     target_link_libraries(sim "${ONNXRUNTIME_LIB}")
-    set_target_properties(sim PROPERTIES
+    set_target_properties(mujocoaim PROPERTIES
         BUILD_RPATH "/Library/Frameworks;/opt/homebrew/lib"
         INSTALL_RPATH "/Library/Frameworks;/opt/homebrew/lib"
     )
 else()
     message(WARNING "ONNX Runtime not found — PPO approach will be unavailable")
 endif()
+
+# ── Headless check ─────────────────────────────────────────────────────────
 
 add_executable(headless_check test_headless.cpp)
 configure_mujoco_target(headless_check)
