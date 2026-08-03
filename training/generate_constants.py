@@ -21,7 +21,8 @@ sys.path.insert(0, ROOT)
 
 from training.ppo_env import (
     DT, BULLET_SPEED, GRAVITY, BULLET_RADIUS,
-    MAX_YAW_VEL, MAX_PITCH_VEL, YAW_LIMIT, PITCH_MIN, PITCH_MAX,
+    MAX_YAW_VEL, MAX_PITCH_VEL, MAX_YAW_ACCEL, MAX_PITCH_ACCEL,
+    YAW_LIMIT, PITCH_MIN, PITCH_MAX,
     GIMBAL_HEIGHT, MUZZLE_LENGTH,
     HEAT_LIMIT, HEAT_PER_SHOT, HEAT_COOLING,
     MAX_SHOTS, TIME_LIMIT,
@@ -68,6 +69,8 @@ constexpr double kBulletRadius = {cpp(BULLET_RADIUS)};
 // ── Gimbal ─────────────────────────────────────────────────────────
 constexpr double kMaxYawVel    = {cpp(MAX_YAW_VEL)};
 constexpr double kMaxPitchVel  = {cpp(MAX_PITCH_VEL)};
+constexpr double kMaxYawAccel  = {cpp(MAX_YAW_ACCEL)};
+constexpr double kMaxPitchAccel = {cpp(MAX_PITCH_ACCEL)};
 constexpr double kYawLimit     = {cpp(YAW_LIMIT)};
 constexpr double kPitchMin     = {cpp(PITCH_MIN)};
 constexpr double kPitchMax     = {cpp(PITCH_MAX)};

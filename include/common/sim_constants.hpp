@@ -15,6 +15,8 @@ constexpr double kBulletRadius = 0.0085;
 // ── Gimbal ─────────────────────────────────────────────────────────
 constexpr double kMaxYawVel    = 4.0;
 constexpr double kMaxPitchVel  = 4.0;
+constexpr double kMaxYawAccel  = 20.0;
+constexpr double kMaxPitchAccel = 20.0;
 constexpr double kYawLimit     = 2.8;
 constexpr double kPitchMin     = -0.8;
 constexpr double kPitchMax     = 0.8;

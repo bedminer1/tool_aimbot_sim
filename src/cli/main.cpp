@@ -308,9 +308,20 @@ int main(int argc, char** argv) {
 
         double dyv=0,dpv=0;
         if(ab){
-        	if(aim_ap==AIM_PPO&&ppred.loaded()){
-                double ts=(lat<0)?0.0:d->time-lat;
-                auto pa=ppred.predict(mpos,obs_pos,gs.yaw,gs.pitch,gs.yaw_vel,gs.pitch_vel,bh,ts);
+        		if(aim_ap==AIM_PPO&&ppred.loaded()){
+        	        double ts=(lat<0)?0.0:d->time-lat;
+        	        // Pass closest armor plate instead of center — matches training env.
+        	        Vec3 plate_pos = obs_pos;
+        	        {double spin=kSpinRads*d->time, c=cos(spin), s=sin(spin);
+        	         Vec3 plates[4]={
+        	           {obs_pos.x-s*0.245,obs_pos.y+c*0.245,0.02},
+        	           {obs_pos.x+c*0.245,obs_pos.y+s*0.245,0.02},
+        	           {obs_pos.x+s*0.245,obs_pos.y-c*0.245,0.02},
+        	           {obs_pos.x-c*0.245,obs_pos.y-s*0.245,0.02}};
+        	         double best=1e9;
+        	         for(auto&p:plates){double d2=p.x*p.x+p.y*p.y+(p.z-kGimbalHeight)*(p.z-kGimbalHeight);
+        	           if(d2<best){best=d2;plate_pos=p;}}}
+        	        auto pa=ppred.predict(mpos,plate_pos,gs.yaw,gs.pitch,gs.yaw_vel,gs.pitch_vel,bh,ts);
                 cmd.control=true;cmd.found=true;cmd.yaw=gs.yaw;cmd.pitch=gs.pitch;
                 cmd.yaw_vel=pa.yaw_vel;cmd.pitch_vel=pa.pitch_vel;
                 cmd.yaw_accel=(pa.yaw_vel-gs.yaw_vel)/kRenderDt;
@@ -339,6 +350,13 @@ int main(int argc, char** argv) {
             cmd.control=true;cmd.found=true;cmd.yaw=wrap_pi(d->qpos[yqp]+yd);
             cmd.pitch=std::clamp(d->qpos[pqp]+pd,kPitchMin,kPitchMax);
             cmd.yaw_vel=dyv;cmd.pitch_vel=dpv;}
+
+        // Acceleration limits matching Python training env (20 rad/s^2).
+        {static double pdyv=0,pdpv=0;
+         double lim=kMaxYawAccel*kRenderDt;
+         dyv=std::clamp(dyv,pdyv-lim,pdyv+lim);
+         dpv=std::clamp(dpv,pdpv-lim,pdpv+lim);
+         pdyv=dyv;pdpv=dpv;}
 
         double fs=d->time;
         while(d->time-fs<kRenderDt){d->ctrl[ym]=dyv;d->ctrl[pm]=dpv;

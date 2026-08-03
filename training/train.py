@@ -46,13 +46,15 @@ def _unwrap_info(info):
 class EvalCallback(BaseCallback):
     """Periodic evaluation: runs episodes, logs metrics to CSV."""
 
-    def __init__(self, eval_freq=10000, n_episodes=5, csv_path=None, verbose=1):
+    def __init__(self, eval_freq=10000, n_episodes=5, csv_path=None,
+                 save_path=None, verbose=1):
         super().__init__(verbose)
         self.eval_freq = eval_freq
         self.n_episodes = n_episodes
         self.best_accuracy = 0.0
         self.best_time = float("inf")
         self._csv_path = csv_path
+        self._save_path = save_path
         if self._csv_path:
             with open(self._csv_path, "w", newline="") as f:
                 csv.writer(f).writerow(["step", "accuracy", "time", "shots_landed"])
@@ -83,6 +85,9 @@ class EvalCallback(BaseCallback):
 
         if accuracy > self.best_accuracy:
             self.best_accuracy = accuracy
+            if self._save_path:
+                self.model.save(self._save_path)
+                print(f"  → saved best model ({accuracy:.1f}%)")
         if avg_time < self.best_time:
             self.best_time = avg_time
 
@@ -136,6 +141,7 @@ def main():
 
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     checkpoint_path = os.path.join(root, "training", "ppo_checkpoint.zip")
+    best_path = os.path.join(root, "training", "ppo_best.zip")
     onnx_path = os.path.join(root, "src", "aim_predictor.onnx")
     timestamp = datetime.now().strftime("%Y-%m-%dT%H%M%S")
     log_dir = os.path.join(root, "training_log")
@@ -143,7 +149,7 @@ def main():
     csv_path = os.path.join(log_dir, f"eval_log_{timestamp}.csv")
 
     if args.render:
-        from training.mujoco_env import MujocoGimbalEnv  # noqa: F811
+        from training.mujoco_training_env import MujocoTrainingEnv  # noqa: F811
 
         _viewer_created = False
 
@@ -151,10 +157,12 @@ def main():
             nonlocal _viewer_created
             rm = "human" if not _viewer_created else None
             _viewer_created = True
-            return MujocoGimbalEnv(difficulty=args.difficulty, render_mode=rm)
+            return MujocoTrainingEnv(difficulty=args.difficulty, render_mode=rm)
     else:
+        from training.mujoco_training_env import MujocoTrainingEnv  # noqa: F811
+
         def make_env():
-            return GimbalEnv(difficulty=args.difficulty)
+            return MujocoTrainingEnv(difficulty=args.difficulty)
 
     env = DummyVecEnv([make_env for _ in range(args.n_envs)])
 
@@ -180,7 +188,7 @@ def main():
             )
 
         eval_cb = EvalCallback(eval_freq=args.eval_freq, n_episodes=8,
-                               csv_path=csv_path)
+                               csv_path=csv_path, save_path=best_path)
 
         t0 = time.time()
         model.learn(total_timesteps=args.timesteps, callback=eval_cb)
@@ -209,6 +217,10 @@ def main():
               f"acc={np.mean(scores):.1f}%  time={np.mean(times_):.2f}s  "
               f"shots={np.mean(shot_counts):.0f}")
 
+        # Export best model (not final — PPO can degrade).
+        if os.path.exists(best_path):
+            print(f"Loading best model ({eval_cb.best_accuracy:.1f}%) for ONNX export")
+            model = PPO.load(best_path, env=env)
         export_onnx(model, onnx_path)
     finally:
         env.close()

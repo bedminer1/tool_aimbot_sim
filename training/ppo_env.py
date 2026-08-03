@@ -283,23 +283,33 @@ class GimbalEnv(Env):
             spawn_pos[2] + vel[2] * dt - 0.5 * GRAVITY * dt * dt,
         ])
 
-    def _check_hit(self, spawn_time, spawn_pos, spawn_dir, target_composite):
-        """Check if bullet segment hits any of 4 armor plates (matching C++)."""
+    def _plate_positions(self):
+        """World positions of 4 armor plates matching gimbal.xml armor_0..3."""
         center = self._target_center
         spin = ORBIT_OMEGA * self.time if self.difficulty != "easy" else 0.0
         c, s = np.cos(spin), np.sin(spin)
-
-        # 4 plate positions in world frame (matching gimbal.xml armor_0..3).
-        # Local positions: N(0,+0.245), E(+0.245,0), S(0,-0.245), W(-0.245,0)
-        # at z=0.02 above chassis center (z=0.015 + half plate height).
-        plates = [
+        return [
             center + np.array([-s * 0.245,  c * 0.245, 0.02]),   # N
             center + np.array([ c * 0.245,  s * 0.245, 0.02]),   # E
             center + np.array([ s * 0.245, -c * 0.245, 0.02]),   # S
             center + np.array([-c * 0.245, -s * 0.245, 0.02]),   # W
         ]
 
-        for plate_pos in plates:
+    def _closest_plate(self):
+        """Plate nearest to gimbal — the one to track/aim at."""
+        plates = self._plate_positions()
+        best, best_d2 = None, float("inf")
+        gz = GIMBAL_HEIGHT
+        for p in plates:
+            d2 = p[0]**2 + p[1]**2 + (p[2] - gz)**2
+            if d2 < best_d2:
+                best_d2 = d2
+                best = p
+        return best
+
+    def _check_hit(self, spawn_time, spawn_pos, spawn_dir, target_composite):
+        """Check if bullet segment hits any of 4 armor plates (matching C++)."""
+        for plate_pos in self._plate_positions():
             if self._segment_hits_box(spawn_pos, spawn_dir, plate_pos,
                                        spawn_time, target_composite):
                 return True
@@ -388,7 +398,7 @@ class GimbalEnv(Env):
 
         # ── Update target ──
         target_pos = self._update_target()
-        self._push_observation(self._target_center)  # center only (matching C++ observer)
+        self._push_observation(self._closest_plate())  # track plate, not center
 
         # ── Cool heat ──
         dt_heat = max(0.0, self.time - self.last_heat_update)
