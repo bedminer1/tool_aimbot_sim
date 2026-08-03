@@ -11,6 +11,7 @@ public:
     Vec3 update(double time) override;
     Vec3 velocity() const override { return vel_; }
     Vec3 composite_pos() const override { return pos_; }
+    void orbit_normal(double& ox, double& oy) const override { ox=0; oy=1; }  // face +Y
     void reset() override;
 
 private:

@@ -16,6 +16,9 @@ struct ITarget {
     // Current composite position.
     virtual Vec3 composite_pos() const = 0;
 
+    // Outward normal of the armor plate (for chassis-spin orientation).
+    virtual void orbit_normal(double& ox, double& oy) const = 0;
+
     // Reset to initial state.
     virtual void reset() = 0;
 };

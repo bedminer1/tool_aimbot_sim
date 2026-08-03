@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cmath>
 #include "target_models/target_interface.hpp"
 
 // ── Medium target: translates left-to-right + orbit wobble ─────────────────
@@ -10,6 +11,8 @@ public:
     Vec3 update(double time) override;
     Vec3 velocity() const override { return vel_; }
     Vec3 composite_pos() const override { return composite_; }
+    void orbit_normal(double& ox, double& oy) const override {
+        double ph = 2.0*kPi*prev_time_/kOrbitT; ox=std::sin(ph); oy=std::cos(ph); }
     void reset() override;
 
 private:

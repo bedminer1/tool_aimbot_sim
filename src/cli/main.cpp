@@ -138,19 +138,12 @@ void update_bullets(std::array<Bullet,kMaxBullets>& bullets, const mjModel* m, m
 
 // ── Target rendering ───────────────────────────────────────────────────────
 
-void write_target_mocap(mjData* d, int mocap_id, const Vec3& pos) {
+void write_target_mocap(mjData* d, int mocap_id, const Vec3& pos, double ox, double oy) {
     d->mocap_pos[3*mocap_id+0]=pos.x; d->mocap_pos[3*mocap_id+1]=pos.y;
     d->mocap_pos[3*mocap_id+2]=pos.z;
-    // Orient plate: face origin (gimbal).
-    Vec3 to_origin{-pos.x, -pos.y, -pos.z};
-    double len = norm(to_origin);
-    if (len > 1e-6) {
-        Vec3 out = to_origin*(-1.0/len);
-        Vec3 ly{-out.y, out.x, 0}; double yl=norm(ly);
-        if (yl<1e-6) ly={0,1,0}; else ly=ly*(1.0/yl);
-        double rot[9]={out.x,out.y,out.z, ly.x,ly.y,ly.z, 0,0,1};
-        mju_mat2Quat(d->mocap_quat+4*mocap_id, rot);
-    }
+    // Orient plate: local +X = outward normal (from orbit/spin), local -X = inward.
+    const mjtNum rot[9] = {ox, oy, 0.0, -oy, ox, 0.0, 0.0, 0.0, 1.0};
+    mju_mat2Quat(d->mocap_quat+4*mocap_id, rot);
 }
 
 // ── Heat ───────────────────────────────────────────────────────────────────
@@ -295,7 +288,8 @@ int main(int argc, char** argv) {
 
         // ── Target ──
         Vec3 tpos = target->update(d->time);
-        write_target_mocap(d, tm, tpos);
+        double ox, oy; target->orbit_normal(ox, oy);
+        write_target_mocap(d, tm, tpos, ox, oy);
         mj_forward(m,d);
 
         dbuf.push(d->time, target->composite_pos(), target->velocity());
