@@ -1,20 +1,39 @@
-"""PPO training for RoboMaster gimbal aimbot.
+"""
+@file    training/train.py
+@brief   PPO training script — trains aimbot policy, exports ONNX for C++ inference
 
-Trains a policy to track and shoot a target at configurable difficulty.
-Two env backends:
-  headless: GimbalEnv       — pure Python, >100k steps/s
-  rendered: MujocoGimbalEnv  — same physics + MuJoCo 3D viewer
+@details
+Two backends, toggled with --render:
+  headless (default):  GimbalEnv — pure-Python replica of C++ sim, >100k steps/s
+  rendered:            MujocoGimbalEnv — identical physics + MuJoCo 3D viewer
 
-Outputs:
-  - src/aim_predictor.onnx     ← ONNX policy for C++ inference
-  - training/ppo_checkpoint    ← SB3 checkpoint (optional resume)
-  - training/eval_log.csv      ← eval metrics for graphing
+Key design decisions:
+  - Headless env is the primary training backend. The MuJoCo viewer exists
+    purely for debugging — you can watch the policy actually tracking and
+    shooting in real-time, which is invaluable for spotting reward hacking
+    (e.g. policy learns to spin in circles instead of tracking).
+  - Multi-stage task: tracking must converge before shooting can provide
+    meaningful feedback. Reward structure: dense tracking gradient (-0.01×|ε|)
+    as a bridge, sparse hit reward (+5) as the destination. Ratio ~3:1 so
+    shooting is always incentivized over perfect tracking.
+  - Curriculum: train on easier difficulties first. Hard mode (random
+    waypoints + spin) is unlearnable from scratch — the policy needs to
+    already understand tracking before handling spinning targets.
 
-Usage:
-  python training/train.py                              # headless, medium
-  python training/train.py --render                      # with MuJoCo viewer
-  python training/train.py -d hard --timesteps 1000000   # hard, 1M steps
-  python training/train.py --resume                      # continue checkpoint
+ONNX export:
+  Exports the deterministic action mean (not stochastic distribution).
+  Wraps policy.features_extractor + mlp_extractor + action_net to bypass
+  the distribution layer which adds exploration noise with std=[0.57,0.54,0.90].
+  This ensures the C++ PpoPredictor produces the same actions as
+  model.predict(obs, deterministic=True) in Python.
+
+Early stopping:
+  --early-stop 95  stops training once best accuracy reaches 95%.
+  Saves time when curriculum-training easier difficulties.
+
+@see training/ppo_env.py, training/mujoco_env.py, aim_models/aim_predictor_ppo.hpp
+@author  bedminer1
+@date    2026-08-03
 """
 
 import argparse
@@ -47,7 +66,7 @@ class EvalCallback(BaseCallback):
     """Periodic evaluation: runs episodes, logs metrics to CSV."""
 
     def __init__(self, eval_freq=10000, n_episodes=5, csv_path=None,
-                 save_path=None, verbose=1):
+                 save_path=None, early_stop=None, verbose=1):
         super().__init__(verbose)
         self.eval_freq = eval_freq
         self.n_episodes = n_episodes
@@ -55,6 +74,7 @@ class EvalCallback(BaseCallback):
         self.best_time = float("inf")
         self._csv_path = csv_path
         self._save_path = save_path
+        self._early_stop = early_stop
         if self._csv_path:
             with open(self._csv_path, "w", newline="") as f:
                 csv.writer(f).writerow(["step", "accuracy", "time", "shots_landed"])
@@ -100,16 +120,40 @@ class EvalCallback(BaseCallback):
             with open(self._csv_path, "a", newline="") as f:
                 csv.writer(f).writerow([self.n_calls, f"{accuracy:.1f}",
                                         f"{avg_time:.2f}", f"{avg_shots:.0f}"])
+
+        if self._early_stop and self.best_accuracy >= self._early_stop:
+            print(f"\n  → Early stop: best accuracy {self.best_accuracy:.1f}% >= {self._early_stop}%")
+            return False
         return True
 
 
 def export_onnx(model, path):
-    """Export SB3 PPO policy to ONNX for C++ inference (3D: yaw_vel, pitch_vel, fire)."""
+    """Export SB3 PPO policy to ONNX for C++ inference (3D: yaw_vel, pitch_vel, fire).
+
+    Exports the deterministic action mean (not stochastic samples).
+    Equivalent to model.predict(obs, deterministic=True).
+    """
     obs_dim = model.observation_space.shape[0]
     dummy = th.randn(1, obs_dim)
 
+    # Export the action mean pipeline directly, bypassing the distribution
+    # (which adds exploration noise with std=[0.57,0.54,0.90] — huge jitter).
+    class MeanExport(th.nn.Module):
+        def __init__(self, policy):
+            super().__init__()
+            self.fe = policy.features_extractor
+            self.mlp = policy.mlp_extractor
+            self.anet = policy.action_net
+
+        def forward(self, obs):
+            f = self.fe(obs)
+            latent = self.mlp.forward_actor(f)
+            return th.clamp(self.anet(latent), -1.0, 1.0)
+
+    wrapper = MeanExport(model.policy)
+
     th.onnx.export(
-        model.policy,
+        wrapper,
         (dummy,),
         path,
         input_names=["obs"],
@@ -137,6 +181,8 @@ def main():
                         choices=["easy", "medium", "hard"])
     parser.add_argument("--render", action="store_true",
                         help="Use MuJoCo passive viewer for 3D visualization")
+    parser.add_argument("--early-stop", type=float, default=None,
+                        help="Stop training when best accuracy >= N%% (e.g. 95)")
     args = parser.parse_args()
 
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -188,7 +234,8 @@ def main():
             )
 
         eval_cb = EvalCallback(eval_freq=args.eval_freq, n_episodes=8,
-                               csv_path=csv_path, save_path=best_path)
+                               csv_path=csv_path, save_path=best_path,
+                               early_stop=args.early_stop)
 
         t0 = time.time()
         model.learn(total_timesteps=args.timesteps, callback=eval_cb)
