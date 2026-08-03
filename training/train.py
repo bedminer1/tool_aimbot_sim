@@ -30,6 +30,8 @@ from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import BaseCallback
 from stable_baselines3.common.vec_env import DummyVecEnv
 
+from datetime import datetime
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from training.ppo_env import GimbalEnv, MAX_SHOTS  # noqa: E402
 
@@ -135,7 +137,10 @@ def main():
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     checkpoint_path = os.path.join(root, "training", "ppo_checkpoint.zip")
     onnx_path = os.path.join(root, "src", "aim_predictor.onnx")
-    csv_path = os.path.join(root, "training", "eval_log.csv")
+    timestamp = datetime.now().strftime("%Y-%m-%dT%H%M%S")
+    log_dir = os.path.join(root, "training_log")
+    os.makedirs(log_dir, exist_ok=True)
+    csv_path = os.path.join(log_dir, f"eval_log_{timestamp}.csv")
 
     if args.render:
         from training.mujoco_env import MujocoGimbalEnv  # noqa: F811
