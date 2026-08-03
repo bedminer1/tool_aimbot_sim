@@ -82,7 +82,7 @@ class EvalCallback(BaseCallback):
 
 
 def export_onnx(model, path):
-    """Export SB3 PPO policy to ONNX for C++ inference."""
+    """Export SB3 PPO policy to ONNX for C++ inference (2D: yaw_vel, pitch_vel)."""
     obs_dim = model.observation_space.shape[0]
     dummy = th.randn(1, obs_dim)
 
@@ -93,14 +93,15 @@ def export_onnx(model, path):
         input_names=["obs"],
         output_names=["action"],
         dynamic_axes={"obs": {0: "batch"}, "action": {0: "batch"}},
-        opset_version=14,
+        opset_version=17,
+        dynamo=False,
     )
     print(f"Exported ONNX: {path}")
 
     session = ort.InferenceSession(path)
     test_input = np.random.randn(1, obs_dim).astype(np.float32)
     outputs = session.run(None, {"obs": test_input})
-    assert outputs[0].shape == (1, 3), f"Bad output shape: {outputs[0].shape}"
+    assert outputs[0].shape == (1, 2), f"Bad output shape: {outputs[0].shape}"
     print(f"ONNX validation OK — output shape: {outputs[0].shape}")
 
 

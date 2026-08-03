@@ -6,6 +6,7 @@ dependencies = [
     "stable-baselines3>=2.0",
     "onnx>=1.14",
     "onnxruntime>=1.14",
+    "onnxscript>=0.1",
     "gymnasium>=1.0",
     "numpy>=1.24",
 ]

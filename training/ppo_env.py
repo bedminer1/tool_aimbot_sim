@@ -24,9 +24,11 @@ HEAT_LIMIT = 260.0
 HEAT_PER_SHOT = 10.0
 HEAT_COOLING = 30.0
 MAX_SHOTS = 100
+TIME_LIMIT = 40.0  # episode timeout — penalize unfired shots
 DETECTION_LAG = 0.015
 SHOOT_DELAY = 0.030
 AUTO_COOLDOWN = 0.12
+AUTO_FIRE_THRESH = 0.20  # radians — fire when aimed within ~11°
 ORBIT_RADIUS = 0.04
 ORBIT_PERIOD = 0.6
 ORBIT_OMEGA = 2.0 * PI / ORBIT_PERIOD
@@ -102,9 +104,9 @@ class GimbalEnv(Env):
     # ══ Target motion (exact replica of C++ update_target_motion) ══════════
 
     def _random_waypoint(self):
-        r = self._rng.uniform(3.0, 5.0)
-        a = self._rng.uniform(-0.55, 0.55)
-        z = self._rng.uniform(0.35, 0.55)
+        r = self._rng.uniform(3.0, 4.5)
+        a = self._rng.uniform(-0.4, 0.4)
+        z = self._rng.uniform(0.38, 0.48)
         return np.array([r * np.cos(a), r * np.sin(a), z])
 
     @staticmethod
@@ -122,7 +124,7 @@ class GimbalEnv(Env):
                 self._target_start_pos = self._target_center.copy()
                 self._target_waypoint = self._random_waypoint()
                 dist = np.linalg.norm(self._target_waypoint - self._target_start_pos)
-                speed = self._rng.uniform(1.0, 2.5)
+                speed = self._rng.uniform(0.5, 1.5)
                 self._target_duration = dist / max(0.1, speed)
         else:  # MOVING
             t = elapsed / self._target_duration
@@ -131,7 +133,7 @@ class GimbalEnv(Env):
                 self._target_vel[:] = 0.0
                 self._target_state = "IDLE"
                 self._target_state_start = self.time
-                self._target_duration = self._rng.uniform(0.1, 0.8)
+                self._target_duration = self._rng.uniform(0.5, 2.0)
             else:
                 st = self._smoothstep(t)
                 self._target_center = self._target_start_pos + (
@@ -304,7 +306,7 @@ class GimbalEnv(Env):
                 remaining.append((trigger_t, mz_pos, mz_dir))
         self._pending_shots = remaining
 
-        # ── Fire ──
+        # ── Fire (policy decides) ──
         can_fire = (fire and self.shots_fired < MAX_SHOTS
                     and self.heat + HEAT_PER_SHOT <= HEAT_LIMIT
                     and (self._last_shot_time < 0
@@ -322,7 +324,6 @@ class GimbalEnv(Env):
             self.shots_fired += 1
             self._last_shot_time = self.time
             self.heat += HEAT_PER_SHOT
-            reward -= 0.05  # spray penalty (low so shooting isn't punished early)
 
         # ── Check hits ──
         for i, (st, sp, sd) in enumerate(self._bullet_times):
@@ -330,9 +331,9 @@ class GimbalEnv(Env):
                 if self._check_hit(st, sp, sd, target_pos):
                     self._bullet_scored[i] = True
                     self.score += 1
-                    reward += 3.0  # hit reward (strong signal to learn shooting)
+                    reward += 5.0  # hit reward
 
-        # ── Tracking reward ──
+        # Tracking gradient.
         delayed_pos = self._get_delayed_pos()
         delta = delayed_pos - self._muzzle_pos
         target_yaw = np.arctan2(delta[1], delta[0])
@@ -340,17 +341,22 @@ class GimbalEnv(Env):
         yaw_err = target_yaw - self.yaw
         yaw_err = (yaw_err + PI) % (2 * PI) - PI
         pitch_err = target_pitch - self.pitch
-        reward -= 0.002 * (yaw_err * yaw_err + pitch_err * pitch_err)
+        reward -= 0.01 * (abs(yaw_err) + abs(pitch_err))
 
-        # ── Update position history ──
+        # Position history for next frame.
         self._pos_history = np.roll(self._pos_history, 1, axis=0)
         self._pos_history[0] = delayed_pos
 
-        # ── Advance time ──
+        # Advance time.
         self.time += DT
+        reward -= 0.005  # time penalty — finish or bleed
 
-        # ── Terminate ──
-        if self.shots_fired >= MAX_SHOTS:
+        # Terminate on shots fired or time limit.
+        if self.shots_fired >= MAX_SHOTS or self.time >= TIME_LIMIT:
+            # Penalize unfired shots at timeout.
+            unfired = MAX_SHOTS - self.shots_fired
+            if unfired > 0:
+                reward -= 0.5 * unfired
             terminated = True
 
         return self._build_obs(), reward, terminated, False, {
