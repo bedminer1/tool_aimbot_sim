@@ -1,3 +1,34 @@
+/**
+ * @file    aim_models/aim_predictor_ppo.hpp / aim_predictor_ppo.cpp
+ * @brief   PPO-trained neural network predictor (ONNX Runtime inference)
+ *
+ * @details
+ * Loads an ONNX policy exported from training/train.py and runs inference
+ * in the C++ sim. The policy was trained via PPO (stable-baselines3) on
+ * a pure-Python replica of the sim (training/ppo_env.py).
+ *
+ * Observation (30-D):
+ *   8-frame position history (24) + gimbal yaw/pitch (2) + gimbal velocity (2)
+ *   + barrel heat (1) + time since last shot (1)
+ *
+ * Action (3-D):
+ *   [yaw_vel, pitch_vel, fire_logit]  — fire when logit > 0
+ *
+ * Scale matching:
+ *   The policy was trained with fixed-scale normalization (pos/5, angle/π,
+ *   vel/4, heat/260). The C++ predictor applies the same scaling. If the
+ *   scales drift between Python training and C++ inference, the policy
+ *   sees a different input distribution and produces garbage.
+ *
+ * Graceful degradation:
+ *   If the .onnx file is missing or fails to load, loaded() returns false
+ *   and the aimbot falls back to VelExtrap without crashing.
+ *
+ * @see training/ppo_env.py, training/train.py
+ * @author  bedminer1
+ * @date    2026-08-03
+ */
+
 #pragma once
 
 #include "aim_models/aim_predictor.hpp"   // Vec3

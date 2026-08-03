@@ -126,7 +126,7 @@ Vec3 random_waypoint()
     // Stay 3–5 m from gimbal. Polar with angle constrained to keep Y bounded.
     const double r = uniform_rand(3.0, 5.0);
     const double angle = uniform_rand(-0.55, 0.55);
-    return {r * std::cos(angle), r * std::sin(angle), uniform_rand(0.35, 0.55)};
+    return {r * std::cos(angle), r * std::sin(angle), 0.015};
 }
 
 double smoothstep(double t)
@@ -505,7 +505,7 @@ int main(int argc, char** argv)
     std::vector<PendingShot> pending_shots;
     size_t pending_fired = 0;  // total shots queued via delay path
 
-    g_target.center_pos = {5.0, 0.0, 0.43};
+    g_target.center_pos = {5.0, 0.0, 0.0};
     g_target.prev_composite = g_target.center_pos;
     g_target.state = TargetBehavior::IDLE;
     g_target.state_start_time = 0.0;
@@ -537,7 +537,7 @@ int main(int argc, char** argv)
             pending_shots.clear();
             pending_fired = 0;
             g_target = TargetBehavior{};
-            g_target.center_pos = {5.0, 0.0, 0.43};
+            g_target.center_pos = {5.0, 0.0, 0.0};
             g_target.prev_composite = g_target.center_pos;
             g_target.state = TargetBehavior::IDLE;
             g_target.state_start_time = d->time;

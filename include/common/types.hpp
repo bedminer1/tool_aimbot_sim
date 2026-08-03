@@ -1,3 +1,23 @@
+/**
+ * @file    common/types.hpp
+ * @brief   Shared 3D vector type and math utilities
+ *
+ * @details
+ * Minimal vector math for the aimbot sim — no Eigen or heavy dependencies.
+ * Vec3: a plain {x, y, z} struct with operator overloads for linear algebra.
+ *
+ * Also provides:
+ *   - wrap_pi()       — angle normalization to [-π, π]
+ *   - smoothstep()    — cubic Hermite interpolation for target pathfinding
+ *   - kPi             — double-precision π
+ *
+ * smoothstep is used in the target waypoint state machine to produce
+ * zero-velocity start/stop transitions (no instantaneous acceleration).
+ *
+ * @author  bedminer1
+ * @date    2026-08-03
+ */
+
 #pragma once
 
 #include <algorithm>

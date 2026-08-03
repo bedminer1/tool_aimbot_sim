@@ -1,0 +1,9 @@
+{
+    "reportMissingTypeStubs": false,
+    "reportUnknownMemberType": false,
+    "reportAttributeAccessIssue": false,
+    "reportUnknownArgumentType": false,
+    "reportUnknownVariableType": false,
+    "reportAny": false,
+    "reportMissingImports": false
+}

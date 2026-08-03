@@ -1,3 +1,25 @@
+/**
+ * @file    src/aim_models/aim_predictor.cpp
+ * @brief   Ballistic solver + velocity extrapolation + detection lag buffer
+ *
+ * @details
+ * ballistic_pitch:
+ *   Closed-form solution to the projectile equation:
+ *     d_h·tan(θ) - (g·d_h²) / (2·v²·cos²(θ)) = dz
+ *   Rearranged to a quadratic in tan(θ) and solved with the quadratic formula.
+ *   Uses the lower trajectory (shorter time-of-flight).
+ *
+ * predict_aim:
+ *   Iterative constant-velocity lead prediction with ballistic pitch refinement.
+ *   4 iterations of: compute pitch → compute TOF → predict forward → repeat.
+ *   This converges because pitch changes only slightly between iterations
+ *   (the ballistic correction is small at typical engagement ranges).
+ *
+ * @see aim_predictor.hpp
+ * @author  bedminer1
+ * @date    2026-08-03
+ */
+
 #include "aim_models/aim_predictor.hpp"
 
 #include <cmath>

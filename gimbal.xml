@@ -1,3 +1,46 @@
+<!--
+ @file    gimbal.xml
+ @brief   MuJoCo model: yaw/pitch gimbal + 4-plate RoboMaster chassis target
+
+ @details
+ Physics and visual definition for the aimbot sim.
+
+ World:
+   - Floor plane with checkerboard texture at z=0
+   - Two-point lighting (key + fill)
+
+ Gimbal (sentry):
+   - 2-DOF yaw/pitch velocity-controlled gimbal at z=0.30
+   - Twin barrels (box geoms) + muzzle cylinder + muzzle site for bullet spawn
+   - Fixed camera mounted above barrels, tilted down for sight-dot visibility
+   - Barrel looks along local +X; camera looks along local -Z
+   - Velocity actuators: kv=45, range ±4 rad/s
+
+ Target (enemy chassis):
+   - Mocap body — position/yaw set programmatically by C++ code
+   - Cylinder chassis: r=0.24 m, h=0.07 m
+   - 4 armor plates: 135×125 mm (RMUL spec), 5 mm thick
+     - N/S plates rotated 90° around Z → large face points ±Y
+     - E/W plates unrotated → large face points ±X
+     - Positioned at r=0.245 m (chassis_radius + plate_half_thickness)
+       so inner face contacts chassis circumference
+   - 4 cosmetic wheels at corners, no collision
+   - Target site at chassis center for sensor readout
+
+ Bullets:
+   - 100 pre-allocated mocap bodies (sphere, r=8.5 mm = 17 mm projectile)
+   - Hidden underground (z=-10) when inactive
+   - Ballistic trajectory computed analytically in C++ (not MuJoCo physics)
+
+ Sensors:
+   - Joint position/velocity (yaw, pitch)
+   - Muzzle site world position + X-axis (barrel direction)
+   - Target site world position
+
+ @author  bedminer1
+ @date    2026-08-03
+-->
+
 <mujoco model="yaw_pitch_gimbal_target">
   <compiler angle="radian" inertiafromgeom="true"/>
 
@@ -34,7 +77,7 @@
     <geom name="floor" type="plane" size="4 3 0.05" material="grid"/>
 
     <!-- Gimbal origin. Barrel/camera look along local +X. -->
-    <body name="gimbal_base" pos="0 0 0.68">
+    <body name="gimbal_base" pos="0 0 0.30">
       <geom name="base_box" type="box" size="0.18 0.16 0.05" pos="0 0 -0.08" material="gimbal_dark" mass="2.0"/>
       <geom name="yaw_ring" type="cylinder" size="0.13 0.035" material="gimbal_dark" mass="0.5"/>
 
@@ -57,20 +100,23 @@
     <!-- RoboMaster-style target: chassis + 4 armor plates + wheels. All children
          of a mocap body so position/yaw are set programmatically. Plates are
          indexed 0=N(+Y), 1=E(+X), 2=S(-Y), 3=W(-X) in local frame. -->
-    <body name="target" pos="4 0 0.43" mocap="true">
-      <!-- Chassis cylinder (r=0.12, h=0.07) -->
-      <geom name="chassis" type="cylinder" size="0.12 0.035" pos="0 0 0.02" material="chassis_dark"/>
-      <!-- 4 armor plates at r=0.12 from center -->
-      <geom name="armor_0" type="box" size="0.005 0.07 0.0625" pos="0 0.12 0.05" material="red_plate"/>
-      <geom name="armor_1" type="box" size="0.005 0.07 0.0625" pos="0.12 0 0.05" euler="0 0 1.5708" material="red_plate"/>
-      <geom name="armor_2" type="box" size="0.005 0.07 0.0625" pos="0 -0.12 0.05" material="red_plate"/>
-      <geom name="armor_3" type="box" size="0.005 0.07 0.0625" pos="-0.12 0 0.05" euler="0 0 1.5708" material="red_plate"/>
+    <body name="target" pos="4 0 0.015" mocap="true">
+      <!-- Chassis cylinder (r=0.24, h=0.07) -->
+      <geom name="chassis" type="cylinder" size="0.24 0.035" pos="0 0 0.02" material="chassis_dark"/>
+      <!-- 4 armor plates: 135×125 mm RMUL spec, 5 mm thick.
+           Placed at r=chassis_radius+half_thickness=0.245 so inner face contacts chassis circumference.
+           N/S plates (armor_0/2) rotated 90° so large face points outward (+Y/-Y).
+           E/W plates (armor_1/3) need no rotation — large face already points ±X. -->
+      <geom name="armor_0" type="box" size="0.005 0.0675 0.0625" pos="0 0.245 0.02" euler="0 0 1.5708" material="red_plate"/>
+      <geom name="armor_1" type="box" size="0.005 0.0675 0.0625" pos="0.245 0 0.02" material="red_plate"/>
+      <geom name="armor_2" type="box" size="0.005 0.0675 0.0625" pos="0 -0.245 0.02" euler="0 0 1.5708" material="red_plate"/>
+      <geom name="armor_3" type="box" size="0.005 0.0675 0.0625" pos="-0.245 0 0.02" material="red_plate"/>
       <!-- Fake wheels (4 at corners, below chassis) -->
-      <geom name="wheel_0" type="cylinder" size="0.035 0.015" pos="0.09 0.09 -0.04" euler="0 1.5708 0" material="wheel_dark"/>
-      <geom name="wheel_1" type="cylinder" size="0.035 0.015" pos="0.09 -0.09 -0.04" euler="0 1.5708 0" material="wheel_dark"/>
-      <geom name="wheel_2" type="cylinder" size="0.035 0.015" pos="-0.09 0.09 -0.04" euler="0 1.5708 0" material="wheel_dark"/>
-      <geom name="wheel_3" type="cylinder" size="0.035 0.015" pos="-0.09 -0.09 -0.04" euler="0 1.5708 0" material="wheel_dark"/>
-      <site name="target_site" pos="0 0 0.05" size="0.02" rgba="1 0 0 0.7"/>
+      <geom name="wheel_0" type="cylinder" size="0.035 0.015" pos="0.18 0.18 -0.04" euler="0 1.5708 0" material="wheel_dark"/>
+      <geom name="wheel_1" type="cylinder" size="0.035 0.015" pos="0.18 -0.18 -0.04" euler="0 1.5708 0" material="wheel_dark"/>
+      <geom name="wheel_2" type="cylinder" size="0.035 0.015" pos="-0.18 0.18 -0.04" euler="0 1.5708 0" material="wheel_dark"/>
+      <geom name="wheel_3" type="cylinder" size="0.035 0.015" pos="-0.18 -0.18 -0.04" euler="0 1.5708 0" material="wheel_dark"/>
+      <site name="target_site" pos="0 0 0.02" size="0.02" rgba="1 0 0 0.7"/>
     </body>
 
     <body name="bullet_0" pos="0 0 -10" mocap="true"><geom type="sphere" size="0.0085" rgba="1 0.85 0.05 1" contype="0" conaffinity="0"/></body>

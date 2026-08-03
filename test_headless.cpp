@@ -10,7 +10,7 @@ namespace
 {
 constexpr double kPi = 3.14159265358979323846;
 constexpr double kTargetX = 5.0;
-constexpr double kTargetZ = 0.43;
+constexpr double kTargetZ = 0.015;
 constexpr double kTargetLateralAmplitudeY = 0.85;
 constexpr double kTargetLateralPeriodS = 5.0;
 constexpr double kTargetOrbitRadius = 0.04;

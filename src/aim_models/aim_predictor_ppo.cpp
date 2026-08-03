@@ -1,3 +1,32 @@
+/**
+ * @file    src/aim_models/aim_predictor_ppo.cpp
+ * @brief   ONNX Runtime inference wrapper for PPO-trained policy
+ *
+ * @details
+ * Loads an ONNX model, normalizes inputs (fixed-scale, matching the Python
+ * training env), runs forward pass, and denormalizes outputs.
+ *
+ * Input normalization (must match training/ppo_env.py):
+ *   pos    /= 5.0
+ *   angle  /= π
+ *   vel    /= 4.0
+ *   heat   /= 260.0
+ *
+ * Action denormalization:
+ *   yaw_vel  = action[0] × 4.0
+ *   pitch_vel = action[1] × 4.0
+ *   fire     = action[2] > 0.0
+ *
+ * History buffer:
+ *   Maintains an 8-frame ring buffer of delayed target positions.
+ *   On each predict() call, the latest delayed position is pushed and
+ *   the buffer is serialized into the observation vector.
+ *
+ * @see aim_predictor_ppo.hpp, training/train.py
+ * @author  bedminer1
+ * @date    2026-08-03
+ */
+
 #include "aim_models/aim_predictor_ppo.hpp"
 #include <algorithm>
 #include <cmath>

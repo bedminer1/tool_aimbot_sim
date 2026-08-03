@@ -1,3 +1,35 @@
+/**
+ * @file    src/aim_models/aim_predictor_intercept.cpp
+ * @brief   EKF + circular motion model + intercept solver + MPC — full implementation
+ *
+ * @details
+ * ~350 lines implementing the four-stage pipeline described in the header.
+ * Key implementation details:
+ *
+ * EKF predict step (constant-velocity + constant-ω model):
+ *   p += v·dt, θ += ω·dt, v and ω unchanged.
+ *   Jacobian F is mostly identity with dt terms in position-velocity coupling.
+ *
+ * EKF update step (nonlinear observation):
+ *   h(x) = [p_x + r·cos(θ), p_y + r·sin(θ), p_z]
+ *   Jacobian H: ∂h/∂p = I, ∂h/∂θ = [-r·sin(θ), r·cos(θ), 0], rest zeros.
+ *
+ * Intercept solver:
+ *   Finds smallest t > 0 solving |p_c(t) + r·(cos(θ(t)), sin(θ(t)))| = v_b·t.
+ *   Uses a quadratic seed (ignoring the orbit term) then damped Newton.
+ *   If Newton diverges (rare — small-radius orbit at typical ranges),
+ *   falls back to bisection in [0, t_max].
+ *
+ * MPC controller:
+ *   Feedforward angular velocity = model.omega (target's angular velocity).
+ *   Feedback = kp × error (position-level P-controller).
+ *   Total = feedforward + feedback, clamped to actuator limits.
+ *
+ * @see aim_predictor_intercept.hpp
+ * @author  bedminer1
+ * @date    2026-08-03
+ */
+
 #include "aim_models/aim_predictor_intercept.hpp"
 
 #include <algorithm>
@@ -316,7 +348,7 @@ MpcCommand make_mpc_command(
     Vec3 target = model_position_at(model, intercept_t);
     Vec3 delta = target - muzzle_pos;
     double target_yaw = std::atan2(delta.y, delta.x);
-    double target_pitch = std::atan2(delta.z, norm_xy(delta));
+    double target_pitch = pred.target_pitch;  // ballistic-corrected
 
     // Feedforward: angular velocity of target at intercept time.
     Vec3 tvel = model_velocity_at(model, intercept_t);

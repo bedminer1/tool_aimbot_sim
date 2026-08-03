@@ -6,10 +6,9 @@ static double urand(double lo, double hi) {
 }
 
 Vec3 TargetHard::random_waypoint() {
-    double r = urand(kRangeLo, kRangeHi);
-    double a = urand(-kAngleMax, kAngleMax);
-    double z = urand(kZLo, kZHi);
-    return {r * std::cos(a), r * std::sin(a), z};
+    double r = urand(kHardRangeLo, kHardRangeHi);
+    double a = urand(-kHardAngleMax, kHardAngleMax);
+    return {r * std::cos(a), r * std::sin(a), 0.015};
 }
 
 TargetState TargetHard::update(double time) {
@@ -22,23 +21,23 @@ TargetState TargetHard::update(double time) {
             st_ = MOVING; st_start_ = time;
             start_p_ = pos_; targ_p_ = random_waypoint();
             double dist = norm(targ_p_ - start_p_);
-            double speed = urand(kSpeedLo, kSpeedHi);
+            double speed = urand(kHardSpeedLo, kHardSpeedHi);
             st_dur_ = dist / std::max(0.1, speed);
         }
     } else {
         double t = elapsed / st_dur_;
         if (t >= 1.0) { pos_ = targ_p_; st_ = IDLE; st_start_ = time;
-            st_dur_ = urand(kPauseLo, kPauseHi); }
+            st_dur_ = urand(kHardPauseLo, kHardPauseHi); }
         else pos_ = start_p_ + (targ_p_ - start_p_) * smoothstep(t);
     }
 
     if (dt > 1e-6) vel_ = (pos_ - prev_p_) * (1.0 / dt);
     prev_p_ = pos_; prev_t_ = time;
-    return {pos_, kSpinRads * time};  // clockwise spin
+    return {pos_, kSpinRads * time};
 }
 
 void TargetHard::reset() {
-    st_ = IDLE; st_start_ = 0.0; st_dur_ = 0.5;
-    pos_ = start_p_ = targ_p_ = {4.0, 0.0, 0.43};
+    st_ = IDLE; st_start_ = 0.0; st_dur_ = kHardPauseLo;
+    pos_ = start_p_ = targ_p_ = {kHardRangeLo + 1.0, 0.0, 0.015};
     vel_ = {}; prev_p_ = pos_; prev_t_ = 0.0;
 }

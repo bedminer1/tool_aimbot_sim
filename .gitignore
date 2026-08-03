@@ -1,8 +1,8 @@
 build/
-.cache/
-compile_commands.json
-.DS_Store
-*.dSYM/
-__pycache__/
 *.onnx
 *.zip
+__pycache__/
+.venv/
+.DS_Store
+compile_commands.json
+training/ppo_checkpoint.zip

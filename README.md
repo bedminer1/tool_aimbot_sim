@@ -1,113 +1,113 @@
-# tool_aimbot_sim
+# tool_aimbot_sim — RoboMaster Gimbal Aimbot Simulation
 
-MuJoCo prototype for a RoboMaster-style yaw/pitch gimbal and moving target.
+MuJoCo + GLFW interactive simulator for developing and benchmarking
+gimbal aimbot approaches against a RoboMaster-style chassis target.
 
-Current scope is intentionally small:
-
-- yaw/pitch gimbal
-- 140 x 125 mm red target plate, 5 m away when straight on
-- target orientation follows the top-down clockwise orbit so one face points inward and the other outward
-- gimbal base is raised so its bottom sits just above the top of the target
-- mouse-controlled yaw/pitch aiming from the gimbal POV
-- left-click shooting with 100 scored 17 mm bullets per run
-- `T` toggles an aimbot that emits the same `hw::Command` fields, manages barrel heat, and fires automatically
-- starts in a fixed gimbal POV camera mounted slightly above the barrel and angled down so the sight dot is visible
-- aimbot-style `hw::Command` output fields for bridging to `27_aimbot_software`
-- on-screen telemetry for target yaw/pitch, yaw/pitch error, command velocities, and simulated gimbal status
-
-This is the first sim scaffold for the Griffin Labs RL-from-scratch challenge. It is not the RL environment yet.
-
-## Build
-
-macOS setup assumes the MuJoCo framework is installed at `/Library/Frameworks/mujoco.framework` and GLFW is available through Homebrew.
+## Quick start
 
 ```bash
-cmake -S . -B build
-cmake --build build
-./build/headless_check
+# 1. Install deps (macOS, one-shot)
+bash setup.sh
+
+# 2. Run
+mujocoaim -d easy          # easy target, no spin
+mujocoaim -d medium        # lateral translate + spin
+mujocoaim -d hard          # random waypoints + spin
 ```
 
-Run:
+## Build (after editing code)
 
 ```bash
-./build/sim
+cmake --build build --target mujocoaim -j$(sysctl -n hw.ncpu)
 ```
 
-Optional explicit XML path:
-
-```bash
-./build/sim gimbal.xml
-```
+The XML (`gimbal.xml`) is loaded at runtime — no rebuild needed for visual tweaks.
 
 ## Controls
 
-- move mouse: aim yaw/pitch
-- left click: fire one shot
-- `T`: toggle aimbot mode and reset score/timer
-- `F`: toggle gimbal POV / free camera
-- `R`: reset
-- `Esc`: quit
-- mouse drag: rotate free camera
-- shift + drag: zoom free camera
+| Key | Action |
+|-----|--------|
+| `T` | Toggle aimbot on/off |
+| `Y` | Cycle aiming approach: VelExtrap → Intercept+MPC → PPO |
+| `G` | Cycle target difficulty: easy → medium → hard |
+| `F` | Toggle gimbal POV / free camera |
+| `R` | Reset (score, heat, bullets, target) |
+| `Esc` | Quit |
+| Mouse | Free-look (free camera) or manual aim (gimbal POV) |
 
-Manual aiming is kinematic velocity control for responsiveness:
+## Architecture
 
-- mouse delta becomes `command.yaw_vel` / `command.pitch_vel`
-- when the mouse stops, both velocities become zero immediately
-- `command.yaw` / `command.pitch` are reset to current gimbal angles every frame so the sim does not chase stale setpoints
-
-Later baseline/RL work can swap this for actuator dynamics behind a mode flag.
-
-Scoring:
-
-- each run has 100 shots (RMUC 2026 sentry heat, Rule Manual §3.5/p.28 + §Launching Mechanisms/p.67)
-- each shot adds 10 heat; barrel cools at 30/s, soft-locks at 260, hard-locks at 360
-- bullets travel at 24.8 m/s on a ballistic trajectory
-- score increments when the bullet intersects the moving target plate
-- timer starts on the first shot and stops on the hundredth shot
-- `R` resets the counter and score
-
-Aimbot mode:
-
-- uses the same simulated inputs as the real pipeline: target yaw/pitch error plus gimbal yaw/pitch status
-- outputs `hw::Command{control, found, shoot, yaw, pitch, yaw_vel, pitch_vel, yaw_accel, pitch_accel}`
-- aims with a low-arc ballistic solution and fires automatically with a short shot cooldown
-
-## Aimbot I/O bridge
-
-`main.cpp` includes `io/command.hpp` and emits the same basic command shape used by `27_aimbot_software`:
-
-```cpp
-hw::Command command;
-command.control = true;
-command.found = true;
-command.yaw = ...;
-command.yaw_vel = ...;
-command.pitch = ...;
-command.pitch_vel = ...;
+```
+tool_aimbot_sim/
+├── gimbal.xml                  MuJoCo model (gimbal + target + bullets)
+├── setup.sh                    One-command environment setup
+├── .clangd                     LSP config (compile_commands.json + framework paths)
+│
+├── include/
+│   ├── common/types.hpp        Vec3, wrap_pi, smoothstep
+│   ├── target_models/          Swappable target difficulties (G key)
+│   │   ├── target_interface.hpp   ITarget polymorphic interface
+│   │   ├── target_easy.hpp        1-DOF lateral translate, no spin
+│   │   ├── target_medium.hpp      Translate + spin (10.472 rad/s)
+│   │   └── target_hard.hpp        Random waypoints + smoothstep + spin
+│   └── aim_models/             Swappable aiming approaches (Y key)
+│       ├── aim_predictor.hpp       Ballistics + velocity extrapolation + lag buffer
+│       ├── aim_predictor_intercept.hpp  EKF + circular model + intercept solver + MPC
+│       └── aim_predictor_ppo.hpp   ONNX Runtime inference (trained policy)
+│
+├── src/
+│   ├── cli/main.cpp            Entry point (mujocoaim binary)
+│   ├── target_models/          Target model implementations
+│   └── aim_models/             Aim predictor implementations
+│
+├── training/
+│   ├── ppo_env.py              Pure-Python Gymnasium env (replica of C++ sim)
+│   └── train.py                PPO training + ONNX export
+│
+└── build/                      CMake build directory
 ```
 
-CMake prefers the real sibling checkout:
+## Aiming approaches
 
-`../27_aimbot_software/io/command.hpp`
+| Approach | Key | Method |
+|----------|-----|--------|
+| VelExtrap | Y→0 | Constant-velocity lead prediction + ballistic pitch |
+| Intercept+MPC | Y→1 | EKF (8-D) → circular motion model → analytic intercept → MPC |
+| PPO | Y→2 | Trained neural network (ONNX) — 3D action: yaw_vel, pitch_vel, fire |
 
-If that repo is not present, it falls back to:
+## Training the PPO policy
 
-`third_party/aimbot_io/io/command.hpp`
+```bash
+cd training
+python train.py                     # 500k steps (default)
+python train.py --timesteps 1000000 # longer training
+python train.py --resume            # continue from checkpoint
+```
 
-The fallback is a minimal mirror of the command struct so this repo still builds standalone.
+Exports `src/aim_predictor.onnx` for C++ inference. The C++ binary loads it
+automatically on startup — falls back to VelExtrap if the file is missing.
 
-## Files
+## Realism knobs
 
-- `gimbal.xml`: MuJoCo yaw/pitch gimbal, target body, gimbal POV camera, sensors, yaw/pitch actuators
-- `main.cpp`: GLFW viewer, mouse aim input, moving target, aimbot-style command/status overlay
-- `test_headless.cpp`: non-visual check for XML names, target motion, snappy yaw/pitch control, and brake-on-release
-- `third_party/aimbot_io/io/command.hpp`: standalone fallback command struct
+| Parameter | Value | Description |
+|-----------|-------|-------------|
+| Detection lag | 15 ms | CV pipeline latency (capture → YOLO → PnP → EKF) |
+| Shooting delay | 30 ms | Trigger solenoid → barrel exit |
+| Barrel heat limit | 260 J | RMUC sentry limit (+10/shot, −30 J/s cooling) |
+| Bullet speed | 24.8 m/s | 17 mm projectile |
+| Armor plate | 135×125×5 mm | RMUL spec |
 
-## Current limitations
+## Dependencies
 
-- no vision detector or tracker loop yet
-- manual control uses kinematic velocity, not realistic torque dynamics
-- no RL environment API yet
+**C++ (macOS):**
+- MuJoCo 3.x framework (`/Library/Frameworks/mujoco.framework`)
+- glfw3, ONNX Runtime (`brew install glfw onnxruntime`)
+- CMake ≥ 3.16
 
-Next step: add an auto-aim baseline mode where target yaw drives a PID/lead controller, then measure tracking error against the moving square.
+**Python (training only):**
+- `mujoco`, `gymnasium`, `stable-baselines3`, `torch`, `onnx`, `onnxruntime`
+- Install via: `uv pip install mujoco gymnasium stable-baselines3 torch onnx onnxruntime`
+
+## License
+
+MIT

@@ -1,3 +1,38 @@
+/**
+ * @file    src/cli/main.cpp
+ * @brief   mujocoaim — RoboMaster gimbal aimbot simulation (MuJoCo + GLFW)
+ *
+ * @details
+ * Interactive simulation for developing and benchmarking gimbal aimbot
+ * approaches against a RoboMaster-style chassis target.
+ *
+ * Architecture:
+ *   - MuJoCo physics (gimbal.xml): yaw/pitch gimbal + 4-plate chassis target
+ *   - Swappable target models (TargetEasy/Medium/Hard): runtime toggled with G key
+ *   - Three aiming approaches (VelExtrap, Intercept+MPC, PPO): toggled with Y key
+ *   - GLFW window: mouse-aimed free camera or gimbal-POV fixed camera (F key)
+ *   - Bullet pool: 100 pre-allocated mocap bodies, ballistic physics
+ *   - Barrel heat: RMUC sentry heat model (260 J limit, +10/shot, −30 J/s)
+ *   - Hit detection: segment-vs-expanded-box across all 4 armor plates
+ *   - Detection lag buffer + shooting delay (15 ms + 30 ms realism knobs)
+ *
+ * Key bindings:
+ *   T     — toggle aimbot on/off
+ *   Y     — cycle aiming approach (VelExtrap → Intercept+MPC → PPO)
+ *   G     — cycle target difficulty (easy → medium → hard)
+ *   F     — toggle between gimbal POV and free camera
+ *   R     — reset (score, heat, bullets, target)
+ *   Esc   — quit
+ *   Mouse — free-look (free camera) or aim (gimbal POV)
+ *
+ * Launch:
+ *   mujocoaim -d easy|medium|hard [gimbal.xml]
+ *
+ * @see gimbal.xml, target_models/, aim_models/
+ * @author  bedminer1
+ * @date    2026-08-03
+ */
+
 // mujocoaim — RoboMaster gimbal aimbot sim with swappable targets and aimers.
 //
 // Usage: mujocoaim [-d easy|medium|hard] [gimbal.xml]
@@ -17,6 +52,8 @@
 
 #include "io/command.hpp"
 #include "common/types.hpp"
+#include "common/sim_constants.hpp"
+#include "aim_models/aim_constants.hpp"
 #include "aim_models/aim_predictor.hpp"
 #include "aim_models/aim_predictor_intercept.hpp"
 #include "aim_models/aim_predictor_ppo.hpp"
@@ -27,17 +64,10 @@
 
 namespace
 {
-constexpr double kRenderDt = 1.0/60.0;
+// ── UI / mouse (not in sim_constants) ──────────────────────────────────────
 constexpr double kMouseYawSens = 0.0025, kMousePitchSens = 0.0020;
-constexpr double kMaxYawVel = 4.0, kMaxPitchVel = 4.0;
 constexpr double kAutoYawKp = 9.0, kAutoPitchKp = 9.0;
-constexpr double kAutoCooldown = 0.12;
-constexpr double kBulletRadius = 0.017/2.0;
-constexpr int kMaxShots = 100, kMaxBullets = kMaxShots;
-constexpr double kHeatLimit = 260.0, kHeatPerShot = 10.0, kHeatCooling = 30.0;
-constexpr double kDetectionLagS = 0.015, kShootDelayS = 0.030;
 constexpr double kMinRange = 3.0, kMaxRange = 7.0, kMaxTargetSpeed = 3.5;
-constexpr int kNumArmorPlates = 4;
 
 enum AimApproach { AIM_VEL_EXTRAP=0, AIM_INTERCEPT, AIM_PPO, AIM_COUNT };
 constexpr const char* kAimNames[] = {"VelExtrap","Intercept+MPC","PPO"};
@@ -277,21 +307,22 @@ int main(int argc, char** argv) {
              dbuf.clear();ipred.clear();}yp=yn;}
 
         double dyv=0,dpv=0;
-        if(ab){if(aim_ap==AIM_PPO&&ppred.loaded()){
-                double ts=(lat<0)?1.0:d->time-lat;
+        if(ab){
+        	if(aim_ap==AIM_PPO&&ppred.loaded()){
+                double ts=(lat<0)?0.0:d->time-lat;
                 auto pa=ppred.predict(mpos,obs_pos,gs.yaw,gs.pitch,gs.yaw_vel,gs.pitch_vel,bh,ts);
                 cmd.control=true;cmd.found=true;cmd.yaw=gs.yaw;cmd.pitch=gs.pitch;
                 cmd.yaw_vel=pa.yaw_vel;cmd.pitch_vel=pa.pitch_vel;
                 cmd.yaw_accel=(pa.yaw_vel-gs.yaw_vel)/kRenderDt;
                 cmd.pitch_accel=(pa.pitch_vel-gs.pitch_vel)/kRenderDt;
                 cmd.shoot=pa.fire;dyv=pa.yaw_vel;dpv=pa.pitch_vel;}
-            else if(aim_ap==AIM_INTERCEPT&&ipred.last_intercept_valid()){
+        	else if(aim_ap==AIM_INTERCEPT&&ipred.last_intercept_valid()){
                 auto mc=make_mpc_command(mpos,ipred.last_model(),pred,gs.yaw,gs.pitch,
                                          gs.yaw_vel,gs.pitch_vel,ipred.last_intercept_t());
                 cmd.control=true;cmd.found=true;cmd.yaw=mc.yaw;cmd.yaw_vel=mc.yaw_vel;
                 cmd.yaw_accel=mc.yaw_accel;cmd.pitch=mc.pitch;cmd.pitch_vel=mc.pitch_vel;
                 cmd.pitch_accel=mc.pitch_accel;dyv=mc.yaw_vel;dpv=mc.pitch_vel;}
-            else{Vec3 delta=obs_pos-mpos;double h2=delta.x*delta.x+delta.y*delta.y;
+        	else{Vec3 delta=obs_pos-mpos;double h2=delta.x*delta.x+delta.y*delta.y;
                 double ffy=0,ffp=0;
                 if(h2>1e-6){ffy=(delta.x*obs_vel.y-delta.y*obs_vel.x)/h2;
                     double h=std::sqrt(h2),r2=h2+delta.z*delta.z;
@@ -331,8 +362,15 @@ int main(int argc, char** argv) {
         bool ar=aa&&ir&&sf+pshots.size()<(size_t)kMaxShots&&bh+kHeatPerShot<=kHeatLimit
                 &&(lat<0||d->time-lat>=kAutoCooldown);
         bool fn=sf+pshots.size()<(size_t)kMaxShots&&(me||ar);
-        cmd.shoot=fn;
-        if(fn){auto*fmz=d->site_xpos+3*ms,*fmx=d->site_xmat+9*ms;
+        if(aim_ap==AIM_PPO){
+            // PPO learned WHEN to fire — use its decision, safety-limit only.
+            cmd.shoot = cmd.shoot && sf+pshots.size()<(size_t)kMaxShots
+                        && bh+kHeatPerShot<=kHeatLimit
+                        && (lat<0||d->time-lat>=kAutoCooldown);
+        } else {
+            cmd.shoot=fn;
+        }
+        if(cmd.shoot){auto*fmz=d->site_xpos+3*ms,*fmx=d->site_xmat+9*ms;
             Vec3 fpos{fmz[0],fmz[1],fmz[2]},fdir{fmx[0],fmx[3],fmx[6]};
             if(kShootDelayS>0)pshots.push_back({d->time,fpos,fdir,sf});
             else{spawn_bullet(bullets,d,ms,sf);lh=false;}

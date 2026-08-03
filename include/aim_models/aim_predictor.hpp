@@ -1,17 +1,44 @@
+/**
+ * @file    aim_models/aim_predictor.hpp / aim_predictor.cpp
+ * @brief   Ballistic solver, velocity-extrapolation predictor, detection-lag buffer
+ *
+ * @details
+ * Foundation layer shared by all aiming approaches.
+ *
+ * Ballistic pitch solver:
+ *   Solves for the elevation angle required to hit a target at
+ *   (horizontal_distance, dz) with projectile speed v_b = 24.8 m/s.
+ *   Uses iterative Newton refinement on the trajectory equation:
+ *     dz = v_b·sin(θ)·t - ½g·t²,  where t = d_h / (v_b·cos(θ))
+ *
+ * Velocity extrapolation predictor (predict_aim):
+ *   Simplest aimbot approach. Projects target position forward by
+ *   system_delay seconds assuming constant velocity:
+ *     p_pred = p_obs + v_obs · (Δt + t_delay)
+ *   Then computes ballistic pitch to hit p_pred.
+ *   Fails when the target accelerates (waypoint transitions) or orbits
+ *   (circular motion) — those require the Intercept+MPC approach.
+ *
+ * DetectLagBuffer:
+ *   Ring buffer simulating the CV pipeline delay (~15 ms). Observations
+ *   are timestamped on push(); the aimbot queries with a lagged timestamp
+ *   on lookup() to get the position/velocity the CV system would have
+ *   reported at that instant. This prevents the aimbot from "seeing
+ *   the future" — a common sim-reality gap.
+ *
+ * @see aim_predictor_intercept.hpp, aim_predictor_ppo.hpp
+ * @author  bedminer1
+ * @date    2026-08-03
+ */
+
 #pragma once
 
 #include "common/types.hpp"
+#include "common/sim_constants.hpp"
 
 #include <algorithm>
 #include <cmath>
 #include <deque>
-
-// ── Ballistic / predictor constants ────────────────────────────────────────
-
-constexpr double kBulletSpeed = 24.8;  // m/s
-constexpr double kGravity = 9.81;
-constexpr double kPitchMin = -0.8;
-constexpr double kPitchMax = 0.8;
 
 // ── Aim prediction output ──────────────────────────────────────────────────
 

@@ -1,8 +1,45 @@
-"""Fast pure-Python replica of the MuJoCo C++ sim for PPO training.
+"""
+@file    training/ppo_env.py
+@brief   Pure-Python replica of the MuJoCo C++ sim for PPO training
 
-Matches the C++ sim exactly: random waypoints, smoothstep, orbit wobble,
-kinematic gimbal, ballistic bullets, detection/shooting delays, barrel heat.
-No rendering — designed for >100k steps/s during training.
+@details
+Gymnasium environment matching the C++ sim (src/cli/main.cpp) exactly:
+same target motion, detection lag, ballistic bullets, barrel heat.
+
+Why a replica instead of wrapping MuJoCo?
+  Speed: >100k steps/s in pure Python vs ~60 fps in the viewer.
+  The policy trains on 500k steps in ~5 minutes instead of ~2 hours.
+
+Architecture (layered to match C++):
+  1. Target motion:   IDLE/MOVING state machine + smoothstep (no orbit wobble
+                       since the Python env doesn't render the chassis spin —
+                       the C++ spin is handled by the multi-plate hit detection
+                       which the PPO predictor doesn't need to model)
+  2. Detection lag:   ring buffer (60 entries), 15 ms delay
+  3. Shooting delay:  30 ms between trigger and muzzle exit
+  4. Ballistic bullets: analytic trajectory, gravity, segment-vs-box hits
+  5. Barrel heat:      RMUC model (260 J / +10 per shot / -30 J/s)
+  6. Auto-fire:        policy outputs fire_logit; threshold at 0
+
+Observation (30-D, fixed-scale normalized):
+  8-frame pos history (24) + gimbal yaw/pitch (2) + gimbal vel (2)
+  + barrel heat (1) + time since last shot (1)
+
+Action (3-D):
+  [yaw_vel, pitch_vel, fire_logit]  — all in [-1, 1]
+
+Reward structure:
+  +5.0    per hit (sparse)
+  -0.01 × (|yaw_err| + |pitch_err|)   tracking gradient
+  -0.005  per timestep (time pressure)
+  -0.5 ×  unfired_shots at timeout (waste penalty)
+
+The tracking reward is deliberately small relative to hits — a 3:1 ratio
+ensures the policy prioritizes shooting over perfect tracking.
+
+@see training/train.py, src/cli/main.cpp, aim_models/aim_predictor_ppo.hpp
+@author  bedminer1
+@date    2026-08-03
 """
 
 import numpy as np
@@ -17,13 +54,17 @@ GRAVITY = 9.81
 BULLET_RADIUS = 0.017 / 2.0
 MAX_YAW_VEL = 4.0
 MAX_PITCH_VEL = 4.0
+MAX_YAW_ACCEL = 20.0     # rad/s² — ~5× motor rating, smooths jitter
+MAX_PITCH_ACCEL = 20.0
 YAW_LIMIT = 2.8
 PITCH_MIN = -0.8
 PITCH_MAX = 0.8
+GIMBAL_HEIGHT = 0.34    # pitch joint world Z (base 0.30 + yaw_link 0.04)
+MUZZLE_LENGTH = 0.76     # muzzle site X in pitch_link frame
 HEAT_LIMIT = 260.0
 HEAT_PER_SHOT = 10.0
 HEAT_COOLING = 30.0
-MAX_SHOTS = 100
+MAX_SHOTS = 50
 TIME_LIMIT = 40.0  # episode timeout — penalize unfired shots
 DETECTION_LAG = 0.015
 SHOOT_DELAY = 0.030
@@ -32,10 +73,23 @@ AUTO_FIRE_THRESH = 0.20  # radians — fire when aimed within ~11°
 ORBIT_RADIUS = 0.04
 ORBIT_PERIOD = 0.6
 ORBIT_OMEGA = 2.0 * PI / ORBIT_PERIOD
-TARGET_HALF_Y = 0.07    # 140 mm / 2
+TARGET_HALF_Y = 0.0675   # 135 mm / 2 (RMUL spec)
 TARGET_HALF_Z = 0.0625  # 125 mm / 2
 TARGET_HALF_X = 0.0085  # thickness / 2
 OBS_STACK = 8            # number of position history frames
+
+# ── Difficulty-specific constants ───────────────────────────────────────────
+# Medium / Easy: linear Y back-and-forth (matching C++ TargetEasy/Medium)
+LINEAR_X = 4.0
+LINEAR_Y_MIN = -1.5
+LINEAR_Y_MAX = 1.5
+LINEAR_SPEED = 0.5
+# Hard: random waypoints (matching C++ TargetHard)
+HARD_RANGE_LO = 3.0
+HARD_RANGE_HI = 4.5
+HARD_ANGLE_MAX = 0.4
+HARD_SPEED_LO = 0.5
+HARD_SPEED_HI = 1.5
 
 # ── Observation normalization constants ─────────────────────────────────────
 POS_SCALE = 1.0 / 5.0
@@ -47,8 +101,11 @@ HEAT_SCALE = 1.0 / HEAT_LIMIT
 class GimbalEnv(Env):
     """PPO training environment matching the C++ aimbot sim."""
 
-    def __init__(self, render_mode=None):
+    def __init__(self, difficulty="hard", render_mode=None):
         super().__init__()
+        if difficulty not in ("easy", "medium", "hard"):
+            raise ValueError(f"Unknown difficulty: {difficulty}")
+        self.difficulty = difficulty
         obs_dim = OBS_STACK * 3 + 4 + 1 + 1  # 30
         self.observation_space = spaces.Box(-np.inf, np.inf, (obs_dim,), dtype=np.float32)
         self.action_space = spaces.Box(-1.0, 1.0, (3,), dtype=np.float32)
@@ -64,15 +121,23 @@ class GimbalEnv(Env):
         self.pitch_vel = 0.0
 
         # ── Target state (matching C++ TargetBehavior) ──
-        self._target_center = np.array([rng.uniform(3.0, 5.0), 0.0, 0.43])
-        self._target_state = "IDLE"
-        self._target_state_start = 0.0
-        self._target_duration = rng.uniform(0.1, 0.8)
-        self._target_start_pos = self._target_center.copy()
-        self._target_waypoint = self._target_center.copy()
-        self._target_vel = np.zeros(3)
-        self._target_prev_composite = self._target_center.copy()
-        self._target_prev_time = 0.0
+        if self.difficulty in ("easy", "medium"):
+            # Linear Y back-and-forth at fixed X.
+            self._target_center = np.array([LINEAR_X, 0.0, 0.015])
+            self._target_vel = np.zeros(3)
+            self._linear_dir = 1  # +Y or -Y
+            self._target_prev_composite = self._target_center.copy()
+            self._target_prev_time = 0.0
+        else:  # hard
+            self._target_center = np.array([rng.uniform(3.0, 5.0), 0.0, 0.0])
+            self._target_state = "IDLE"
+            self._target_state_start = 0.0
+            self._target_duration = rng.uniform(0.1, 0.8)
+            self._target_start_pos = self._target_center.copy()
+            self._target_waypoint = self._target_center.copy()
+            self._target_vel = np.zeros(3)
+            self._target_prev_composite = self._target_center.copy()
+            self._target_prev_time = 0.0
         self._rng = rng
 
         # ── Bullets / heat ──
@@ -97,24 +162,56 @@ class GimbalEnv(Env):
 
         self._first_shot_time = -1.0
         self._last_shot_time = -1.0
-        self._muzzle_pos = np.array([0.0, 0.0, 0.76])
+        self._muzzle_pos = np.array([MUZZLE_LENGTH, 0.0, GIMBAL_HEIGHT])
 
         return self._build_obs(), {}
 
-    # ══ Target motion (exact replica of C++ update_target_motion) ══════════
+    # ══ Target motion (matching C++ target models) ═══════════════════════════
 
-    def _random_waypoint(self):
-        r = self._rng.uniform(3.0, 4.5)
-        a = self._rng.uniform(-0.4, 0.4)
-        z = self._rng.uniform(0.38, 0.48)
-        return np.array([r * np.cos(a), r * np.sin(a), z])
+    def _update_target_linear(self):
+        """Easy/Medium: linear Y back-and-forth at fixed X (TargetEasy/Medium)."""
+        dt = self.time - self._target_prev_time
+        if dt <= 0.0:
+            return self._target_center
+
+        ny = self._target_center[1] + self._linear_dir * LINEAR_SPEED * dt
+        if ny > LINEAR_Y_MAX:
+            ny = LINEAR_Y_MAX
+            self._linear_dir = -1
+        elif ny < LINEAR_Y_MIN:
+            ny = LINEAR_Y_MIN
+            self._linear_dir = 1
+        self._target_center = np.array([LINEAR_X, ny, 0.015])
+
+        composite = self._target_center
+        if self.difficulty == "medium":
+            # Spin/orbit wobble (matching C++ kSpinRads = 2π/0.6s)
+            phase = ORBIT_OMEGA * self.time
+            orbit = np.array([ORBIT_RADIUS * np.sin(phase),
+                              ORBIT_RADIUS * np.cos(phase), 0.0])
+            composite = self._target_center + orbit
+
+        if dt > 1e-6:
+            self._target_vel = (composite - self._target_prev_composite) / dt
+        self._target_prev_composite = composite
+        self._target_prev_time = self.time
+        return composite
 
     @staticmethod
     def _smoothstep(t):
         t = np.clip(t, 0.0, 1.0)
         return t * t * (3.0 - 2.0 * t)
 
+    def _random_waypoint(self):
+        r = self._rng.uniform(HARD_RANGE_LO, HARD_RANGE_HI)
+        a = self._rng.uniform(-HARD_ANGLE_MAX, HARD_ANGLE_MAX)
+        return np.array([r * np.cos(a), r * np.sin(a), 0.015])
+
     def _update_target(self):
+        if self.difficulty in ("easy", "medium"):
+            return self._update_target_linear()
+
+        # Hard: random waypoints + orbit wobble
         elapsed = self.time - self._target_state_start
         if self._target_state == "IDLE":
             self._target_vel[:] = 0.0
@@ -124,7 +221,7 @@ class GimbalEnv(Env):
                 self._target_start_pos = self._target_center.copy()
                 self._target_waypoint = self._random_waypoint()
                 dist = np.linalg.norm(self._target_waypoint - self._target_start_pos)
-                speed = self._rng.uniform(0.5, 1.5)
+                speed = self._rng.uniform(HARD_SPEED_LO, HARD_SPEED_HI)
                 self._target_duration = dist / max(0.1, speed)
         else:  # MOVING
             t = elapsed / self._target_duration
@@ -187,68 +284,84 @@ class GimbalEnv(Env):
         ])
 
     def _check_hit(self, spawn_time, spawn_pos, spawn_dir, target_composite):
-        """Segment-vs-box: bullet path from spawn to impact vs target box."""
-        # Impact time: when bullet reaches target's XY plane distance.
-        to_target = target_composite - spawn_pos
-        h_xy = np.hypot(to_target[0], to_target[1])
-        pitch = np.arctan2(to_target[2], h_xy)
-        tof = h_xy / (BULLET_SPEED * np.cos(pitch))
+        """Check if bullet segment hits any of 4 armor plates (matching C++)."""
+        center = self._target_center
+        spin = ORBIT_OMEGA * self.time if self.difficulty != "easy" else 0.0
+        c, s = np.cos(spin), np.sin(spin)
 
-        # Bullet positions at sample points along trajectory.
-        n_samples = 8
-        prev = spawn_pos.copy()
-        for i in range(1, n_samples + 1):
-            t_frac = tof * i / n_samples
-            curr = self._bullet_pos_at(spawn_time, spawn_pos, spawn_dir,
-                                       spawn_time + t_frac)
-            if self._segment_hits_box(prev, curr, target_composite):
+        # 4 plate positions in world frame (matching gimbal.xml armor_0..3).
+        # Local positions: N(0,+0.245), E(+0.245,0), S(0,-0.245), W(-0.245,0)
+        # at z=0.02 above chassis center (z=0.015 + half plate height).
+        plates = [
+            center + np.array([-s * 0.245,  c * 0.245, 0.02]),   # N
+            center + np.array([ c * 0.245,  s * 0.245, 0.02]),   # E
+            center + np.array([ s * 0.245, -c * 0.245, 0.02]),   # S
+            center + np.array([-c * 0.245, -s * 0.245, 0.02]),   # W
+        ]
+
+        for plate_pos in plates:
+            if self._segment_hits_box(spawn_pos, spawn_dir, plate_pos,
+                                       spawn_time, target_composite):
                 return True
-            prev = curr
         return False
 
-    def _segment_hits_box(self, a, b, target_center):
-        """Check if segment a→b intersects the target box."""
-        # Transform to target-local frame (X=thickness, Y=width, Z=height).
-        # Center of box is target_center.
-        # Local axes: +X = outward from orbit (toward +gimbal direction approx).
-        # For simplicity: box is oriented with its face toward origin.
+    def _segment_hits_box(self, a_start, a_dir, box_center, spawn_time, _unused):
+        """Segment-vs-box: bullet trajectory against an armor plate box.
 
-        # Direction from target to origin (muzzle is near origin).
-        to_origin = -target_center
-        h_xy = np.hypot(to_origin[0], to_origin[1])
+        Uses analytic bullet trajectory with gravity."""
+        to_target = box_center - a_start
+        h_xy = np.hypot(to_target[0], to_target[1])
         if h_xy < 1e-6:
             return False
-        local_x = to_origin / np.linalg.norm(to_origin)  # points toward origin
+        pitch_to_target = np.arctan2(to_target[2], h_xy)
+        tof = h_xy / (BULLET_SPEED * np.cos(pitch_to_target))
+
+        # Direction from box to origin (gimbal near origin).
+        to_origin = -box_center
+        d_norm = np.linalg.norm(to_origin)
+        if d_norm < 1e-6:
+            return False
+        local_x = to_origin / d_norm
         local_y = np.array([-local_x[1], local_x[0], 0.0])
         local_z = np.array([0.0, 0.0, 1.0])
 
-        # Expand half-extents by bullet radius.
         half = np.array([TARGET_HALF_X + BULLET_RADIUS,
                          TARGET_HALF_Y + BULLET_RADIUS,
                          TARGET_HALF_Z + BULLET_RADIUS])
 
-        # Transform a and b to local frame.
-        da = a - target_center
-        db = b - target_center
-        al = np.array([np.dot(local_x, da), np.dot(local_y, da), np.dot(local_z, da)])
-        bl = np.array([np.dot(local_x, db), np.dot(local_y, db), np.dot(local_z, db)])
+        n_samples = 8
+        a = a_start.copy()
+        for i in range(1, n_samples + 1):
+            t_frac = tof * i / n_samples
+            b = self._bullet_pos_at(spawn_time, a_start, a_dir,
+                                     spawn_time + t_frac)
+            da = a - box_center
+            db = b - box_center
+            al = np.array([np.dot(local_x, da), np.dot(local_y, da), np.dot(local_z, da)])
+            bl = np.array([np.dot(local_x, db), np.dot(local_y, db), np.dot(local_z, db)])
 
-        t_min, t_max = 0.0, 1.0
-        for i in range(3):
-            direction = bl[i] - al[i]
-            if abs(direction) < 1e-9:
-                if al[i] < -half[i] or al[i] > half[i]:
-                    return False
-                continue
-            t1 = (-half[i] - al[i]) / direction
-            t2 = (half[i] - al[i]) / direction
-            if t1 > t2:
-                t1, t2 = t2, t1
-            t_min = max(t_min, t1)
-            t_max = min(t_max, t2)
-            if t_min > t_max:
-                return False
-        return t_max >= 0.0
+            t_min, t_max = 0.0, 1.0
+            hit = True
+            for j in range(3):
+                direction = bl[j] - al[j]
+                if abs(direction) < 1e-9:
+                    if al[j] < -half[j] or al[j] > half[j]:
+                        hit = False
+                        break
+                    continue
+                t1 = (-half[j] - al[j]) / direction
+                t2 = (half[j] - al[j]) / direction
+                if t1 > t2:
+                    t1, t2 = t2, t1
+                t_min = max(t_min, t1)
+                t_max = min(t_max, t2)
+                if t_min > t_max:
+                    hit = False
+                    break
+            if hit and t_max >= 0.0:
+                return True
+            a = b
+        return False
 
     # ══ Step ═══════════════════════════════════════════════════════════════
 
@@ -275,7 +388,7 @@ class GimbalEnv(Env):
 
         # ── Update target ──
         target_pos = self._update_target()
-        self._push_observation(target_pos)
+        self._push_observation(self._target_center)  # center only (matching C++ observer)
 
         # ── Cool heat ──
         dt_heat = max(0.0, self.time - self.last_heat_update)
@@ -283,6 +396,11 @@ class GimbalEnv(Env):
         self.last_heat_update = self.time
 
         # ── Update gimbal kinematics ──
+        # Clamp acceleration for realistic motor behavior.
+        yaw_vel = np.clip(yaw_vel, self.yaw_vel - MAX_YAW_ACCEL * DT,
+                          self.yaw_vel + MAX_YAW_ACCEL * DT)
+        pitch_vel = np.clip(pitch_vel, self.pitch_vel - MAX_PITCH_ACCEL * DT,
+                            self.pitch_vel + MAX_PITCH_ACCEL * DT)
         self.yaw += yaw_vel * DT
         self.pitch += pitch_vel * DT
         self.yaw = (self.yaw + PI) % (2 * PI) - PI
@@ -295,6 +413,11 @@ class GimbalEnv(Env):
         muzzle_dir = np.array([np.cos(self.pitch) * np.cos(self.yaw),
                                np.cos(self.pitch) * np.sin(self.yaw),
                                np.sin(self.pitch)])
+
+        # ── Compute muzzle world position from forward kinematics ──
+        self._muzzle_pos[0] = MUZZLE_LENGTH * muzzle_dir[0]
+        self._muzzle_pos[1] = MUZZLE_LENGTH * muzzle_dir[1]
+        self._muzzle_pos[2] = GIMBAL_HEIGHT + MUZZLE_LENGTH * muzzle_dir[2]
 
         # ── Process pending shots ──
         remaining = []
@@ -341,7 +464,7 @@ class GimbalEnv(Env):
         yaw_err = target_yaw - self.yaw
         yaw_err = (yaw_err + PI) % (2 * PI) - PI
         pitch_err = target_pitch - self.pitch
-        reward -= 0.01 * (abs(yaw_err) + abs(pitch_err))
+        reward -= 0.5 * (yaw_err**2 + pitch_err**2)  # squared: small cheap, large punished
 
         # Position history for next frame.
         self._pos_history = np.roll(self._pos_history, 1, axis=0)

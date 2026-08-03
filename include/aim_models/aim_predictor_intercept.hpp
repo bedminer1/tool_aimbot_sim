@@ -2,11 +2,48 @@
 
 #include "aim_models/aim_predictor.hpp"  // Vec3, AimPrediction, kPi, kBulletSpeed, kGravity, kPitchMin, kPitchMax
 
-// ══════════════════════════════════════════════════════════════════════════════
-// Model-based aiming pipeline: EKF → circular motion model → intercept solver
-// → MPC feedforward+feedback controller.  All in one file because it's one
-// approach — separating them just scatters the coupling.
-// ══════════════════════════════════════════════════════════════════════════════
+/**
+ * @file    aim_models/aim_predictor_intercept.hpp / aim_predictor_intercept.cpp
+ * @brief   Model-based aimbot: EKF → circular motion model → intercept solver → MPC
+ *
+ * @details
+ * Full analytic aiming pipeline for spinning/accelerating targets.
+ *
+ * Architecture (one file, one approach — tightly coupled pipeline):
+ *
+ *   1. CircularEkf (8-D extended Kalman filter)
+ *      State: [p_x, p_y, p_z, v_x, v_y, v_z, θ, ω]
+ *      Measurement: armor plate position z = [p_x + r·cos(θ), p_y + r·sin(θ), p_z]
+ *      High process noise on v and ω → tracks aggressive maneuvers.
+ *      No warmup — produces estimates from the first observation.
+ *
+ *   2. CircularModel
+ *      Parameterized by EKF state. Predicts plate position/velocity at
+ *      any future time t: the plate orbits the chassis center at radius r
+ *      with angular velocity ω.
+ *
+ *   3. solve_intercept_time (analytic solver)
+ *      Solves |p(t)|² = (v_b·t)² for smallest positive t where the bullet
+ *      reaches the predicted plate position. Uses quadratic seed → damped
+ *      Newton (≤6 iterations) → bisection fallback for robustness.
+ *
+ *   4. MPC controller (make_mpc_command)
+ *      Feedforward: predicted target angular velocity at intercept time.
+ *      Feedback: P-controller on residual yaw/pitch error.
+ *      Outputs hw::Command-shaped (yaw, yaw_vel, pitch, pitch_vel) for
+ *      the MuJoCo velocity actuators.
+ *
+ * Theory — why EKF?
+ *   The observation (plate position) is a nonlinear function of the state
+ *   due to the sin/cos of phase angle θ. The observation Jacobian H is
+ *   computed analytically for the EKF update step. This lets the filter
+ *   disambiguate "chassis moved left" from "plate rotated to the left side"
+ *   without needing to track individual plate identities.
+ *
+ * @see CircularModel, CircularEkf, InterceptPredictor, MpcCommand
+ * @author  bedminer1
+ * @date    2026-08-03
+ */
 
 // ── Circular motion model ──────────────────────────────────────────────────
 // Target = chassis center (translating) + armor plate (spinning).
