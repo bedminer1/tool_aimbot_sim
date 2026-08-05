@@ -5,7 +5,7 @@ gimbal aimbot approaches against a RoboMaster-style chassis target.
 
 ## Demo
 
-**VelExtrap** (97% accuracy):
+**Simple Velocity Extrapolation** (97% accuracy):
 
 ![VelExtrap demo](docs/vel_extrap_demo.gif)
 
