@@ -5,11 +5,11 @@ gimbal aimbot approaches against a RoboMaster-style chassis target.
 
 ## Demo
 
-**VelExtrap** (constant-velocity lead prediction):
+**VelExtrap** (97% accuracy):
 
 ![VelExtrap demo](docs/vel_extrap_demo.gif)
 
-**PPO-trained policy** (100 shots, 40s time limit):
+**PPO-trained policy** (50% accuracy):
 
 ![PPO demo](docs/ppo_demo.gif)
 
