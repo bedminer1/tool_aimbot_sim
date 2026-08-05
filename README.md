@@ -13,6 +13,8 @@ gimbal aimbot approaches against a RoboMaster-style chassis target.
 
 ![PPO demo](docs/ppo_demo.gif)
 
+Policy trained on same target difficulty, for 500k steps. PPO implementation by Stable_baseline3.
+
 ## Quick start
 
 ```bash
