@@ -236,10 +236,11 @@ int main(int argc, char** argv) {
     while(!glfwWindowShouldClose(w)){
         bool rn=glfwGetKey(w,GLFW_KEY_R)==GLFW_PRESS;
         if(rn&&!rp){
+            bool was_ab=ab;  // preserve aimbot state across reset
             mj_resetData(m,d);reset_cmd(cmd,d,yqp,pqp);
             cam.type=mjCAMERA_FIXED;cam.fixedcamid=gc;
             glfwSetInputMode(w,GLFW_CURSOR,GLFW_CURSOR_DISABLED);
-            mi=false;ab=false;ap=false;sp=false;sf=0;sc=0;lh=false;
+            mi=false;ab=was_ab;ap=false;sp=false;sf=0;sc=0;lh=false;
             ft=lt=lat=-1;bh=0;lhu=0;reset_bullets(bullets,d);
             dbuf.clear();ipred.clear();pshots.clear();target->reset();
         }rp=rn;
@@ -407,22 +408,18 @@ int main(int argc, char** argv) {
         mjv_updateScene(m,d,&opt,nullptr,&cam,mjCAT_ALL,&scn);mjr_render(vp,&scn,&con);
 
         double se=(ft<0)?0:((sf>=kMaxShots?lt:d->time)-ft);
-        char left[1500];
+        char left[512];
         std::snprintf(left,sizeof(left),
-            "mujocoaim -d %s | G:difficulty T:aimbot %s Y:approach[%s] F:POV R:reset Esc:quit\n"
-            "shots %d/100 score %d last=%s heat %.0f/%.0f time %.2fs lag=%.0fms delay=%.0fms\n"
-            "target=(%.2f,%.2f,%.2f) yaw=%+.3f pitch=%+.3f err yaw=%+.3f pitch=%+.3f\n"
-            "cmd{shoot=%d yaw=%+.3f yaw_vel=%+.3f pitch=%+.3f pitch_vel=%+.3f}\n"
-            "status yaw=%+.3f yaw_vel=%+.3f pitch=%+.3f pitch_vel=%+.3f ctrl=(%+.2f,%+.2f)",
-            kDiffNames[di],ab?"ON":"OFF",kAimNames[aim_ap],sf,sc,
-            lh?"HIT":pshots.empty()?"MISS":"...",bh,kHeatLimit,se,
-            kDetectionLagS*1000,kShootDelayS*1000,
-            obs_pos.x,obs_pos.y,obs_pos.z,pred.target_yaw,pred.target_pitch,
-            pred.yaw_error,pred.pitch_error,cmd.shoot?1:0,
-            cmd.yaw,cmd.yaw_vel,cmd.pitch,cmd.pitch_vel,
-            d->qpos[yqp],d->qvel[yqv],d->qpos[pqp],d->qvel[pqv],
-            d->ctrl[ym],d->ctrl[pm]);
-        mjr_overlay(mjFONT_NORMAL,mjGRID_TOPLEFT,vp,left,nullptr,&con);
+            "mujocoaim -d %s | T:aimbot %s Y:%s | R:reset Esc:quit\n"
+            "\n"
+            "  Landed    %d / %d fired  (%.0f%%)\n"
+            "  Time      %.2fs\n"
+            "  Heat      %.0f / %.0f",
+            kDiffNames[di],ab?"ON":"OFF",kAimNames[aim_ap],
+            sc,sf,sf>0?sc*100.0/sf:0.0,
+            se,
+            bh,kHeatLimit);
+        mjr_overlay(mjFONT_BIG,mjGRID_TOPLEFT,vp,left,nullptr,&con);
         glfwSwapBuffers(w);glfwPollEvents();}
 
     mjv_freeScene(&scn);mjr_freeContext(&con);

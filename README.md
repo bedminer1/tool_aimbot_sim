@@ -3,6 +3,16 @@
 MuJoCo + GLFW interactive simulator for developing and benchmarking
 gimbal aimbot approaches against a RoboMaster-style chassis target.
 
+## Demo
+
+**VelExtrap** (constant-velocity lead prediction):
+
+![VelExtrap demo](docs/vel_extrap_demo.gif)
+
+**PPO-trained policy** (100 shots, 40s time limit):
+
+![PPO demo](docs/ppo_demo.gif)
+
 ## Quick start
 
 ```bash
